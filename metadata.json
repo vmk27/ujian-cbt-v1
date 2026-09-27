@@ -1,0 +1,6 @@
+{
+  "name": "NusantaraCBT - Sistem Ujian Berbasis Komputer",
+  "description": "Platform Computer Based Test (CBT) terpadu dengan portal Siswa, ruang ujian interaktif berfitur penanda ragu-ragu & pengawas waktu, serta panel Proktor/Admin untuk manajemen bank soal, token ujian, dan rekapitulasi nilai.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
