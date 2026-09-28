@@ -38,28 +38,25 @@ export const LoginView: React.FC = () => {
               <MonitorCheck className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-900 tracking-tight text-base">
-                  {appSettings.appName}
-                </span>
-                <span className="text-[11px] font-mono uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                  v4.2 Enterprise
-                </span>
-              </div>
+              <span className="font-bold text-slate-900 tracking-tight text-base block">
+                {appSettings.appName}
+              </span>
               <p className="text-xs text-slate-500">
                 {appSettings.appSubtitle} — {appSettings.schoolName}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-6 text-xs text-slate-600">
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span className="font-medium text-slate-700">Server CBT Aktif</span>
-            </div>
-            <div className="font-mono text-slate-500 tabular-nums bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200">
-              TA {appSettings.academicYear} • Semester {appSettings.semester}
-            </div>
+          <div className="flex items-center gap-4 text-xs text-slate-600">
+            <span className="hidden sm:inline-block font-medium text-slate-700">
+              Portal Evaluasi Akademik Terpadu
+            </span>
+            <span className="hidden sm:inline-block text-slate-300" aria-hidden="true">
+              ·
+            </span>
+            <span className="font-mono text-slate-600 tabular-nums">
+              TA {appSettings.academicYear} · Semester {appSettings.semester}
+            </span>
           </div>
         </div>
       </header>
@@ -68,26 +65,26 @@ export const LoginView: React.FC = () => {
       <main className="flex-1 flex items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
         <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           {/* Left Column: Institutional Information */}
-          <div className="lg:col-span-7 space-y-6">
-            <div className="bg-white rounded-xl border border-slate-200 p-6 sm:p-8 shadow-xs">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold mb-4">
+          <div className="lg:col-span-7">
+            <div className="bg-white rounded-xl border border-slate-200 p-6 sm:p-8">
+              <div className="inline-flex items-center gap-2 text-blue-700 text-xs font-semibold mb-3">
                 <BookOpenCheck className="w-4 h-4" />
                 <span>Portal Pelaksanaan Ujian Satuan Pendidikan</span>
               </div>
 
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight text-balance">
                 Evaluasi Akademik Terukur dengan Integritas Penuh.
               </h1>
               <p className="mt-3 text-sm sm:text-base text-slate-600 leading-relaxed">
                 Platform ujian berbasis komputer yang dirancang khusus untuk kenyamanan fokus siswa
-                serta kemudahan pengawasan proktor. Dilengkapi validasi token sesi, penanda soal
-                ragu-ragu, penyimpanan jawaban otomatis, dan rekapitulasi nilai terpadu.
+                serta kemudahan pengawasan proktor. Dilengkapi validasi token sesi, isolasi jadwal
+                per angkatan kelas, penanda soal ragu-ragu, dan rekapitulasi nilai terpadu.
               </p>
 
               {/* Feature Grid */}
               <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-6 border-t border-slate-100">
                 <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
-                  <div className="text-xs font-bold uppercase tracking-wider text-blue-700 mb-1">
+                  <div className="text-xs font-semibold text-blue-700 mb-1">
                     01. Validasi Token
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -95,15 +92,15 @@ export const LoginView: React.FC = () => {
                   </p>
                 </div>
                 <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
-                  <div className="text-xs font-bold uppercase tracking-wider text-amber-700 mb-1">
-                    02. Penanda Ragu-Ragu
+                  <div className="text-xs font-semibold text-amber-700 mb-1">
+                    02. Isolasi Angkatan
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Matriks nomor soal interaktif dengan indikator warna Terjawab, Ragu, dan Kosong.
+                    Jadwal dan paket soal otomatis disesuaikan dengan tingkat angkatan Kelas X, XI, atau XII.
                   </p>
                 </div>
                 <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
-                  <div className="text-xs font-bold uppercase tracking-wider text-emerald-700 mb-1">
+                  <div className="text-xs font-semibold text-emerald-700 mb-1">
                     03. Analitik Real-Time
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">
@@ -116,14 +113,14 @@ export const LoginView: React.FC = () => {
 
           {/* Right Column: Clean Login Form Card */}
           <div className="lg:col-span-5">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
               <div className="p-6 sm:p-8">
                 <div className="mb-6">
                   <h2 className="text-xl font-bold text-slate-900">
                     Masuk {appSettings.appName}
                   </h2>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Siswa masuk menggunakan NISN dari tabel <strong className="text-slate-700 font-mono">students</strong>. Staf/Guru/Proktor masuk via tabel <strong className="text-slate-700 font-mono">users</strong>.
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Masukkan NISN (untuk Peserta Didik) atau Username/NIP (untuk Admin, Guru, dan Proktor).
                   </p>
                 </div>
 
@@ -135,7 +132,7 @@ export const LoginView: React.FC = () => {
 
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                       NISN / Username / NIP
                     </label>
                     <div className="relative">
@@ -152,7 +149,7 @@ export const LoginView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                       Password / Kredensial CBT
                     </label>
                     <div className="relative">
@@ -182,7 +179,7 @@ export const LoginView: React.FC = () => {
                   <div className="pt-2">
                     <button
                       type="submit"
-                      className="w-full py-3 px-4 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-sm shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-3 px-4 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <span>Masuk Sistem CBT</span>
                       <ArrowRight className="w-4 h-4" />
@@ -194,7 +191,7 @@ export const LoginView: React.FC = () => {
                   <div className="flex items-start gap-2.5">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <span>
-                      Siswa diarahkan langsung ke Portal Ujian (tabel <code className="font-mono text-slate-800 font-bold">students</code>), Admin/Guru/Proktor ke Panel Manajemen (tabel <code className="font-mono text-slate-800 font-bold">users</code>).
+                      Pastikan kredensial sesuai dengan Kartu Peserta Ujian yang diterbitkan oleh panitia penyelenggara.
                     </span>
                   </div>
                 </div>
@@ -211,7 +208,7 @@ export const LoginView: React.FC = () => {
             © 2026 {appSettings.appName} — {appSettings.schoolName}.
           </div>
           <div className="font-mono text-[11px] text-slate-400">
-            Standar Tata Kelola ANBK / UTBK-SNBT Nasional
+            Standar Tata Kelola Evaluasi Berbasis Komputer
           </div>
         </div>
       </footer>

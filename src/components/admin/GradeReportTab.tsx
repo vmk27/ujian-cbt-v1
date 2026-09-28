@@ -10,6 +10,8 @@ import {
   Building2,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
+import { findMatchingStudentForSession, integrateSessionWithStudents } from '../../lib/supabase';
+import { canStudentAccessExam } from '../../utils/examAccess';
 
 interface GradeReportRow {
   no: number; // Nomor Auto-Increment
@@ -93,15 +95,28 @@ export const GradeReportTab: React.FC = () => {
 
   const reportRows = useMemo<GradeReportRow[]>(() => {
     const rawRows: Omit<GradeReportRow, 'no'>[] = [];
+    const reconciledSessions = sessions.map(
+      (s) => integrateSessionWithStudents(s, students).session
+    );
 
     if (selectedExamId !== 'ALL' && selectedExam) {
       const kkm = selectedExam.passingScore || appSettings.defaultKkm || 75;
-      const examSessions = sessions.filter((s) => s.examId === selectedExam.id);
-      const sessionByStudent = new Map(examSessions.map((s) => [s.studentId, s]));
+      const examSessions = reconciledSessions.filter((s) => s.examId === selectedExam.id);
+      const matchedSessionIds = new Set<string>();
 
       for (const st of students) {
-        const ses = sessionByStudent.get(st.id);
-        if (!ses && !includeUntestedStudents) continue;
+        const ses = examSessions.find((s) => {
+          if (s.studentId === st.id) return true;
+          const matched = findMatchingStudentForSession(s, [st]);
+          return Boolean(matched);
+        });
+        if (ses) {
+          matchedSessionIds.add(ses.id);
+        } else {
+          if (!includeUntestedStudents) continue;
+          // Jangan tampilkan siswa dari angkatan/kelas lain pada jadwal/laporan ujian angkatan berbeda
+          if (!canStudentAccessExam(st, selectedExam, classes)) continue;
+        }
 
         const score = ses ? ses.score : null;
         const pred = computePredikat(score, kkm);
@@ -123,9 +138,31 @@ export const GradeReportTab: React.FC = () => {
           hasTakenExam: Boolean(ses),
         });
       }
+
+      // Also include any exam session from a student device whose student record wasn't matched above
+      for (const ses of examSessions) {
+        if (matchedSessionIds.has(ses.id)) continue;
+        const pred = computePredikat(ses.score, kkm);
+        const ket = computeKeterangan(ses.score, kkm);
+        rawRows.push({
+          studentId: ses.studentId,
+          nisn: ses.studentUsername,
+          namaLengkap: ses.studentName,
+          nomorPeserta: ses.studentNomorPeserta,
+          kelas: ses.studentKelas,
+          mataUji: `${selectedExam.subject} (${selectedExam.code})`,
+          nilai: ses.score,
+          kkm,
+          predikat: pred.label,
+          predikatCode: pred.code,
+          keterangan: ket.text,
+          isPassed: ket.passed,
+          hasTakenExam: true,
+        });
+      }
     } else {
-      // All completed/in-progress sessions across all exams
-      for (const ses of sessions) {
+      // All completed/in-progress sessions across all exams (integrated with public.students)
+      for (const ses of reconciledSessions) {
         const ex = exams.find((e) => e.id === ses.examId);
         const kkm = ex?.passingScore || appSettings.defaultKkm || 75;
         const pred = computePredikat(ses.score, kkm);

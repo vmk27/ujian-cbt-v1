@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useCBT } from '../../context/CBTContext';
+import { canStudentAccessExam } from '../../utils/examAccess';
 
 export type CardSizePresetId =
   | 'cr80'
@@ -203,19 +204,26 @@ export const ExamCardsTab: React.FC = () => {
     return Array.from(set).sort();
   }, [classes, students]);
 
+  const selectedExam = useMemo(
+    () => exams.find((e) => e.id === selectedExamId),
+    [exams, selectedExamId]
+  );
+
   const filteredStudents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return students.filter((s) => {
       const matchClass = classFilter === 'ALL' || s.kelas === classFilter;
+      const matchExamAngkatan =
+        !selectedExam || canStudentAccessExam(s, selectedExam, classes);
       const matchQuery =
         !q ||
         s.name.toLowerCase().includes(q) ||
         s.username.toLowerCase().includes(q) ||
         s.nomorPeserta.toLowerCase().includes(q) ||
         s.kelas.toLowerCase().includes(q);
-      return matchClass && matchQuery;
+      return matchClass && matchExamAngkatan && matchQuery;
     });
-  }, [students, classFilter, searchQuery]);
+  }, [students, classFilter, selectedExam, classes, searchQuery]);
 
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
@@ -242,11 +250,6 @@ export const ExamCardsTab: React.FC = () => {
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
   };
-
-  const selectedExam = useMemo(
-    () => exams.find((e) => e.id === selectedExamId),
-    [exams, selectedExamId]
-  );
 
   const getRoomForClass = (namaKelas: string): string => {
     const found = classes.find(

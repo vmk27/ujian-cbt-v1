@@ -32,6 +32,11 @@ import {
   ExamPackage,
   ExamStatus,
 } from '../../types/cbt';
+import {
+  canStudentAccessExam,
+  extractTingkatFromText,
+  TingkatAngkatan,
+} from '../../utils/examAccess';
 import { ClassManagementTab } from './ClassManagementTab';
 import { StudentManagementTab } from './StudentManagementTab';
 import { UserManagementTab } from './UserManagementTab';
@@ -79,6 +84,7 @@ export const AdminPortal: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [studentClassFilter, setStudentClassFilter] = useState<string>('ALL');
+  const [examAngkatanFilter, setExamAngkatanFilter] = useState<'ALL' | TingkatAngkatan>('ALL');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Exam Modal State
@@ -875,58 +881,119 @@ export const AdminPortal: React.FC = () => {
           {/* ==================== TAB: EXAMS MANAGEMENT ==================== */}
           {activeTab === 'exams' && (
             <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-900">
-                    Daftar Paket & Jadwal Pelaksanaan Ujian CBT
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Kelola daftar paket ujian, jadwal pelaksanaan (tanggal, jam mulai & jam berakhir), durasi waktu, nilai KKM, serta status sesi.
-                  </p>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-2xs space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">
+                      Daftar Paket & Jadwal Pelaksanaan Ujian CBT (Isolasi Akses Per Angkatan)
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Soal dan jadwal ujian otomatis dikunci sesuai target angkatan (Kelas X, XI, atau XII) sehingga tidak bercampur antar-angkatan pada portal siswa.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openCreateExamModal}
+                    className="px-4 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-2 shadow-2xs cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>Tambah Paket & Jadwal Ujian</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={openCreateExamModal}
-                  className="px-4 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-2 shadow-2xs cursor-pointer shrink-0"
-                >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span>Tambah Paket & Jadwal Ujian</span>
-                </button>
+
+                {/* Segmented Filter by Angkatan (Kelas X, XI, XII) */}
+                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                    {(
+                      [
+                        { id: 'ALL', label: `Semua Angkatan (${exams.length})` },
+                        {
+                          id: 'X',
+                          label: `Angkatan Kelas X (${
+                            exams.filter((e) => extractTingkatFromText(e.kelasTarget, classes) === 'X').length
+                          })`,
+                        },
+                        {
+                          id: 'XI',
+                          label: `Angkatan Kelas XI (${
+                            exams.filter((e) => extractTingkatFromText(e.kelasTarget, classes) === 'XI').length
+                          })`,
+                        },
+                        {
+                          id: 'XII',
+                          label: `Angkatan Kelas XII (${
+                            exams.filter((e) => extractTingkatFromText(e.kelasTarget, classes) === 'XII').length
+                          })`,
+                        },
+                      ] as const
+                    ).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setExamAngkatanFilter(tab.id)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                          examAngkatanFilter === tab.id
+                            ? 'bg-white text-blue-700 shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    Siswa hanya melihat jadwal yang sesuai dengan tingkat angkatan kelasnya.
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {exams.map((ex) => {
-                  const examQs = getQuestionsByExam(ex.id);
-                  const qCount = examQs.length;
-                  const pgCount = examQs.filter((q) => q.questionType !== 'esai').length;
-                  const esaiCount = examQs.filter((q) => q.questionType === 'esai').length;
-                  return (
-                    <div
-                      key={ex.id}
-                      className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between gap-4"
-                    >
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                              {ex.code}
-                            </span>
-                            <span
-                              className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
-                                ex.status === 'active'
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                {exams
+                  .filter((ex) => {
+                    if (examAngkatanFilter === 'ALL') return true;
+                    return extractTingkatFromText(ex.kelasTarget, classes) === examAngkatanFilter;
+                  })
+                  .map((ex) => {
+                    const examQs = getQuestionsByExam(ex.id);
+                    const qCount = examQs.length;
+                    const pgCount = examQs.filter((q) => q.questionType !== 'esai').length;
+                    const esaiCount = examQs.filter((q) => q.questionType === 'esai').length;
+                    const examTingkat = extractTingkatFromText(ex.kelasTarget, classes);
+                    const eligibleStudentCount = studentUsers.filter((stu) =>
+                      canStudentAccessExam(stu, ex, classes)
+                    ).length;
+                    return (
+                      <div
+                        key={ex.id}
+                        className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between gap-4"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                {ex.code}
+                              </span>
+                              {examTingkat && (
+                                <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded border border-indigo-200">
+                                  Khusus Angkatan {examTingkat}
+                                </span>
+                              )}
+                              <span
+                                className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded ${
+                                  ex.status === 'active'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : ex.status === 'draft'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}
+                              >
+                                {ex.status === 'active'
+                                  ? 'Aktif'
                                   : ex.status === 'draft'
-                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                  : 'bg-slate-100 text-slate-600'
-                              }`}
-                            >
-                              {ex.status === 'active'
-                                ? 'Aktif'
-                                : ex.status === 'draft'
-                                ? 'Draft'
-                                : 'Ditutup'}
-                            </span>
-                          </div>
+                                  ? 'Draft'
+                                  : 'Ditutup'}
+                              </span>
+                            </div>
 
                           <div className="flex items-center gap-2 shrink-0">
                             <button
@@ -954,8 +1021,11 @@ export const AdminPortal: React.FC = () => {
                             {ex.title}
                           </h3>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            Mata Pelajaran: <strong>{ex.subject}</strong> • Target:{' '}
-                            <strong>{ex.kelasTarget}</strong>
+                            Mata Pelajaran: <strong>{ex.subject}</strong> · Target Akses:{' '}
+                            <strong className="text-blue-700">{ex.kelasTarget}</strong>{' '}
+                            <span className="font-mono text-slate-500">
+                              ({eligibleStudentCount} siswa berhak akses)
+                            </span>
                           </p>
                         </div>
 
@@ -1347,7 +1417,7 @@ export const AdminPortal: React.FC = () => {
 
               <div>
                 <label className="block font-bold uppercase text-slate-600 mb-1">
-                  Target Kelas / Rombel
+                  Target Angkatan & Kelas / Rombel (Isolasi Akses Jadwal Siswa)
                 </label>
                 <select
                   value={examForm.kelasTarget}
@@ -1356,14 +1426,30 @@ export const AdminPortal: React.FC = () => {
                   }
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                 >
-                  <option value="Semua Kelas XII">Semua Kelas XII</option>
-                  <option value="Semua Kelas XI">Semua Kelas XI</option>
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.namaKelas}>
-                      {c.namaKelas}
-                    </option>
-                  ))}
+                  <optgroup label="Per Angkatan Kelas (Seluruh Rombel Angkatan)">
+                    <option value="Semua Kelas X">Semua Kelas X (Khusus Angkatan Kelas X)</option>
+                    <option value="Semua Kelas XI">Semua Kelas XI (Khusus Angkatan Kelas XI)</option>
+                    <option value="Semua Kelas XII">Semua Kelas XII (Khusus Angkatan Kelas XII)</option>
+                  </optgroup>
+                  <optgroup label="Per Angkatan & Jurusan">
+                    <option value="Semua Kelas X MIPA">Semua Kelas X MIPA</option>
+                    <option value="Semua Kelas X IPS">Semua Kelas X IPS</option>
+                    <option value="Semua Kelas XI MIPA">Semua Kelas XI MIPA</option>
+                    <option value="Semua Kelas XI IPS">Semua Kelas XI IPS</option>
+                    <option value="Semua Kelas XII MIPA">Semua Kelas XII MIPA</option>
+                    <option value="Semua Kelas XII IPS">Semua Kelas XII IPS</option>
+                  </optgroup>
+                  <optgroup label="Rombel / Kelas Spesifik">
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.namaKelas}>
+                        Kelas {c.namaKelas} (Angkatan {c.tingkat})
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Paket soal dan jadwal ujian ini hanya akan muncul dan dapat diakses oleh siswa yang sesuai dengan target angkatan/kelas di atas.
+                </p>
               </div>
 
               <div>

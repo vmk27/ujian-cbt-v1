@@ -73,6 +73,28 @@ export const INITIAL_CLASSES: ClassRoom[] = [
     kapasitas: 36,
     tahunAjaran: '2026/2027',
   },
+  {
+    id: 'kls-x-mipa-1',
+    kodeKelas: 'KLS-X-MIPA-1',
+    namaKelas: 'X MIPA 1',
+    tingkat: 'X',
+    jurusan: 'MIPA',
+    waliKelas: 'Hendra Saputra, S.Pd.',
+    ruangUjian: 'Lab Komputer Dasar 1 (Gedung D)',
+    kapasitas: 36,
+    tahunAjaran: '2026/2027',
+  },
+  {
+    id: 'kls-x-ips-1',
+    kodeKelas: 'KLS-X-IPS-1',
+    namaKelas: 'X IPS 1',
+    tingkat: 'X',
+    jurusan: 'IPS',
+    waliKelas: 'Dewi Sartika, S.Pd., M.Hum.',
+    ruangUjian: 'Lab Komputer Dasar 2 (Gedung D)',
+    kapasitas: 36,
+    tahunAjaran: '2026/2027',
+  },
 ];
 
 export const INITIAL_USERS: UserAccount[] = [
@@ -208,6 +230,39 @@ export const INITIAL_USERS: UserAccount[] = [
     jenisKelamin: 'P',
     sekolah: 'SMA Negeri 1 Nusantara Jakarta',
   },
+  {
+    id: 'usr-siswa-08',
+    username: '10293854',
+    password: 'CBT-008',
+    name: 'Rafi Ahmad Fauzan',
+    role: 'siswa',
+    kelas: 'XI MIPA 1',
+    nomorPeserta: '26-01-0104-008',
+    jenisKelamin: 'L',
+    sekolah: 'SMA Negeri 1 Nusantara Jakarta',
+  },
+  {
+    id: 'usr-siswa-09',
+    username: '10293855',
+    password: 'CBT-009',
+    name: 'Nadine Putri Ramadhani',
+    role: 'siswa',
+    kelas: 'X MIPA 1',
+    nomorPeserta: '26-01-0104-009',
+    jenisKelamin: 'P',
+    sekolah: 'SMA Negeri 1 Nusantara Jakarta',
+  },
+  {
+    id: 'usr-siswa-10',
+    username: '10293856',
+    password: 'CBT-010',
+    name: 'Rizky Pratama Hidayat',
+    role: 'siswa',
+    kelas: 'X IPS 1',
+    nomorPeserta: '26-01-0104-010',
+    jenisKelamin: 'L',
+    sekolah: 'SMA Negeri 1 Nusantara Jakarta',
+  },
 ];
 
 export const INITIAL_EXAMS: ExamPackage[] = [
@@ -261,7 +316,7 @@ export const INITIAL_EXAMS: ExamPackage[] = [
     code: 'ASA-BIO-2026',
     title: 'Asesmen Sumatif Akhir: Biologi Sel, Genetika & Bioteknologi',
     subject: 'Biologi Peminatan',
-    kelasTarget: 'XII MIPA 1',
+    kelasTarget: 'Semua Kelas XII MIPA',
     examDate: '2026-09-29',
     startTime: '07:30',
     endTime: '08:10',
@@ -271,7 +326,7 @@ export const INITIAL_EXAMS: ExamPackage[] = [
     passingScore: 75,
     showExplanationAfterSubmit: true,
     instructions: [
-      'Ujian ini dikhususkan bagi peserta peminatan MIPA namun terbuka untuk simulasi.',
+      'Ujian ini dikhususkan bagi peserta angkatan Kelas XII peminatan MIPA.',
       'Setiap soal memiliki bobot poin yang tertera pada bagian atas kartu soal.',
       'Sistem akan mengirimkan lembar jawaban secara otomatis apabila waktu ujian habis.',
     ],
@@ -282,7 +337,7 @@ export const INITIAL_EXAMS: ExamPackage[] = [
     code: 'ASA-EKO-2026',
     title: 'Evaluasi Kompetensi: Ekonomi Makro, Moneter & Kebijakan Fiskal',
     subject: 'Ekonomi Peminatan',
-    kelasTarget: 'XII IPS 1',
+    kelasTarget: 'Semua Kelas XII IPS',
     examDate: '2026-09-29',
     startTime: '10:00',
     endTime: '10:35',
@@ -296,6 +351,46 @@ export const INITIAL_EXAMS: ExamPackage[] = [
       'Teliti kembali seluruh nomor soal pada panel navigasi sebelah kanan sebelum mengakhiri sesi.',
     ],
     createdAt: '2026-09-26T10:15:00Z',
+  },
+  {
+    id: 'exam-fis-xi-05',
+    code: 'ASTS-FIS-XI',
+    title: 'Asesmen Sumatif Tengah Semester: Kinematika & Termodinamika Kelas XI',
+    subject: 'Fisika Kelas XI',
+    kelasTarget: 'Semua Kelas XI',
+    examDate: '2026-09-30',
+    startTime: '08:00',
+    endTime: '08:40',
+    durationMinutes: 40,
+    token: 'FIS11A',
+    status: 'active',
+    passingScore: 75,
+    showExplanationAfterSubmit: true,
+    instructions: [
+      'Paket ujian ini hanya dapat diakses oleh peserta didik angkatan Kelas XI.',
+      'Kerjakan soal dengan teliti dan perhatikan satuan SI pada setiap perhitungan.',
+    ],
+    createdAt: '2026-09-26T11:00:00Z',
+  },
+  {
+    id: 'exam-ipa-x-06',
+    code: 'ASTS-IPA-X',
+    title: 'Asesmen Sumatif Kelas X: Metode Ilmiah, Pengukuran & Klasifikasi Materi',
+    subject: 'IPA Terpadu Kelas X',
+    kelasTarget: 'Semua Kelas X',
+    examDate: '2026-09-30',
+    startTime: '09:00',
+    endTime: '09:40',
+    durationMinutes: 40,
+    token: 'IPA10X',
+    status: 'active',
+    passingScore: 72,
+    showExplanationAfterSubmit: true,
+    instructions: [
+      'Paket ujian ini dikhususkan untuk peserta didik angkatan Kelas X (X MIPA & X IPS).',
+      'Periksa ketelitian angka penting dan besaran pokok sebelum memilih jawaban.',
+    ],
+    createdAt: '2026-09-26T12:00:00Z',
   },
 ];
 
@@ -809,6 +904,86 @@ export const INITIAL_QUESTIONS: Question[] = [
     points: 20,
     explanation:
       'Depresiasi mata uang domestik membuat harga barang ekspor Indonesia menjadi relatif lebih murah bagi pembeli luar negeri yang memegang USD, sehingga meningkatkan daya saing ekspor.',
+  },
+
+  // ==================== EXAM 5: FISIKA KELAS XI (2 SOAL) ====================
+  {
+    id: 'q-fis-xi-1',
+    examId: 'exam-fis-xi-05',
+    number: 1,
+    topic: 'Hukum I Termodinamika',
+    questionText:
+      'Suatu gas ideal menyerap kalor sebesar 600 J dari lingkungan dan pada saat yang sama melakukan usaha luar sebesar 250 J. Berapakah perubahan energi dalam (ΔU) yang dialami gas tersebut?',
+    options: [
+      { id: 'A', text: 'Bertambah sebesar 350 J' },
+      { id: 'B', text: 'Berkurang sebesar 350 J' },
+      { id: 'C', text: 'Bertambah sebesar 850 J' },
+      { id: 'D', text: 'Berkurang sebesar 850 J' },
+      { id: 'E', text: 'Tetap tidak berubah (0 J)' },
+    ],
+    correctOption: 'A',
+    points: 50,
+    explanation:
+      'Berdasarkan Hukum I Termodinamika: ΔU = Q - W = +600 J - 250 J = +350 J (energi dalam gas bertambah 350 J).',
+  },
+  {
+    id: 'q-fis-xi-2',
+    examId: 'exam-fis-xi-05',
+    number: 2,
+    topic: 'Keseimbangan Benda Tegar',
+    questionText:
+      'Sebuah gaya F = 40 N bekerja tegak lurus pada ujung batang homogen yang panjangnya 1,5 meter dari poros putar. Besar momen gaya (torsi) terhadap poros tersebut adalah...',
+    options: [
+      { id: 'A', text: '20 N·m' },
+      { id: 'B', text: '40 N·m' },
+      { id: 'C', text: '60 N·m' },
+      { id: 'D', text: '80 N·m' },
+      { id: 'E', text: '120 N·m' },
+    ],
+    correctOption: 'C',
+    points: 50,
+    explanation:
+      'Torsi τ = F × r × sin(90°) = 40 N × 1,5 m × 1 = 60 N·m.',
+  },
+
+  // ==================== EXAM 6: IPA TERPADU KELAS X (2 SOAL) ====================
+  {
+    id: 'q-ipa-x-1',
+    examId: 'exam-ipa-x-06',
+    number: 1,
+    topic: 'Besaran Pokok & Satuan Internasional',
+    questionText:
+      'Manakah di antara pasangan besaran pokok dan satuan Sistem Internasional (SI) berikut yang seluruhnya benar menurut standar pengukuran fisika?',
+    options: [
+      { id: 'A', text: 'Suhu (Celcius), Kuat Arus (Ampere), Massa (Gram)' },
+      { id: 'B', text: 'Panjang (Meter), Suhu (Kelvin), Intensitas Cahaya (Candela)' },
+      { id: 'C', text: 'Gaya (Newton), Waktu (Sekon), Jumlah Zat (Mol)' },
+      { id: 'D', text: 'Kecepatan (m/s), Massa (Kilogram), Waktu (Sekon)' },
+      { id: 'E', text: 'Energi (Joule), Kuat Arus (Ampere), Suhu (Kelvin)' },
+    ],
+    correctOption: 'B',
+    points: 50,
+    explanation:
+      'Tujuh besaran pokok SI meliputi Panjang (m), Massa (kg), Waktu (s), Kuat Arus (A), Suhu (K), Jumlah Zat (mol), dan Intensitas Cahaya (cd).',
+  },
+  {
+    id: 'q-ipa-x-2',
+    examId: 'exam-ipa-x-06',
+    number: 2,
+    topic: 'Perubahan Fisika dan Kimia',
+    questionText:
+      'Peristiwa manakah di bawah ini yang merupakan contoh perubahan kimia karena menghasilkan zat baru dengan sifat yang berbeda dari zat asalnya?',
+    options: [
+      { id: 'A', text: 'Es batu mencair ketika diletakkan di suhu ruang' },
+      { id: 'B', text: 'Kapur barus menyublim di dalam lemari pakaian' },
+      { id: 'C', text: 'Besi pagar mengalami perkaratan (korosi) setelah terpapar udara lembap' },
+      { id: 'D', text: 'Air laut menguap membentuk kristal garam di tambak' },
+      { id: 'E', text: 'Lilin meleleh saat dipanaskan di atas wadah' },
+    ],
+    correctOption: 'C',
+    points: 50,
+    explanation:
+      'Perkaratan besi (korosi) adalah reaksi oksidasi antara besi (Fe), oksigen (O2), dan uap air yang membentuk senyawa baru Fe2O3·nH2O.',
   },
 ];
 

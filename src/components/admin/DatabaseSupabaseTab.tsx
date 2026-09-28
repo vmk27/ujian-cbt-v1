@@ -308,6 +308,7 @@ export const DatabaseSupabaseTab: React.FC = () => {
     'public.students': users.filter((u) => u.role === 'siswa').length,
     'public.users': users.filter((u) => u.role !== 'siswa').length,
     'public.exam_sessions': sessions.length,
+    'public.v_rekap_nilai': sessions.length,
     'public.exams': exams.length,
     'public.questions': questions.length,
   };

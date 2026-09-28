@@ -385,33 +385,118 @@ export function mapSessionToRow(s: ExamSession) {
 
 export function mapRowToSession(row: Record<string, unknown>): ExamSession {
   return {
-    id: String(row.id),
+    id: String(row.id ?? row.session_id ?? ''),
     examId: String(row.exam_id ?? ''),
     studentId: String(row.student_id ?? ''),
-    studentName: String(row.student_name ?? ''),
-    studentUsername: String(row.student_username ?? ''),
-    studentKelas: String(row.student_kelas ?? ''),
-    studentNomorPeserta: String(row.student_nomor_peserta ?? ''),
-    startedAt: String(row.started_at ?? new Date().toISOString()),
-    submittedAt: row.submitted_at ? String(row.submitted_at) : undefined,
-    status: (row.status as SessionStatus) || 'in_progress',
+    studentName: String(row.student_name ?? row.nama_siswa ?? ''),
+    studentUsername: String(row.student_username ?? row.nisn ?? ''),
+    studentKelas: String(row.student_kelas ?? row.nama_kelas ?? ''),
+    studentNomorPeserta: String(
+      row.student_nomor_peserta ?? row.nomor_peserta ?? ''
+    ),
+    startedAt: String(
+      row.started_at ?? row.waktu_mulai ?? new Date().toISOString()
+    ),
+    submittedAt:
+      row.submitted_at || row.waktu_selesai
+        ? String(row.submitted_at ?? row.waktu_selesai)
+        : undefined,
+    status:
+      ((row.status ?? row.status_sesi) as SessionStatus) || 'in_progress',
     answers:
       row.answers && typeof row.answers === 'object'
         ? (row.answers as Record<string, string>)
+        : row.jawaban_siswa && typeof row.jawaban_siswa === 'object'
+        ? (row.jawaban_siswa as Record<string, string>)
         : {},
     doubtFlags:
       row.doubt_flags && typeof row.doubt_flags === 'object'
         ? (row.doubt_flags as Record<string, boolean>)
         : {},
     remainingSeconds: Number(row.remaining_seconds ?? 0),
-    tabSwitchCount: Number(row.tab_switch_count ?? 0),
-    score: Number(row.score ?? 0),
-    earnedPoints: Number(row.earned_points ?? 0),
-    maxPoints: Number(row.max_points ?? 100),
-    correctCount: Number(row.correct_count ?? 0),
-    wrongCount: Number(row.wrong_count ?? 0),
-    unansweredCount: Number(row.unanswered_count ?? 0),
-    totalQuestions: Number(row.total_questions ?? 0),
+    tabSwitchCount: Number(row.tab_switch_count ?? row.pelanggaran_tab ?? 0),
+    score: Number(row.score ?? row.nilai_akhir ?? 0),
+    earnedPoints: Number(
+      row.earned_points ?? row.poin_diperoleh ?? row.score ?? row.nilai_akhir ?? 0
+    ),
+    maxPoints: Number(row.max_points ?? row.poin_maksimal ?? 100),
+    correctCount: Number(row.correct_count ?? row.jumlah_benar ?? 0),
+    wrongCount: Number(row.wrong_count ?? row.jumlah_salah ?? 0),
+    unansweredCount: Number(row.unanswered_count ?? row.jumlah_kosong ?? 0),
+    totalQuestions: Number(row.total_questions ?? row.total_soal ?? 0),
+  };
+}
+
+export function findMatchingStudentForSession(
+  s: Pick<
+    ExamSession,
+    | 'studentId'
+    | 'studentUsername'
+    | 'studentNomorPeserta'
+    | 'studentName'
+    | 'studentKelas'
+  >,
+  usersList: UserAccount[]
+): UserAccount | undefined {
+  const stuList = usersList.filter((u) => u.role === 'siswa');
+  if (stuList.length === 0) return undefined;
+
+  // 1. Exact ID match in students
+  const byId = stuList.find((st) => st.id === s.studentId);
+  if (byId) return byId;
+
+  // 2. Match by NISN / username
+  const cleanUser = (s.studentUsername || '').trim().toLowerCase();
+  if (cleanUser) {
+    const byUsername = stuList.find(
+      (st) => st.username.trim().toLowerCase() === cleanUser
+    );
+    if (byUsername) return byUsername;
+  }
+
+  // 3. Match by Nomor Peserta
+  const cleanNo = (s.studentNomorPeserta || '').trim().toLowerCase();
+  if (cleanNo) {
+    const byNoPeserta = stuList.find(
+      (st) => st.nomorPeserta.trim().toLowerCase() === cleanNo
+    );
+    if (byNoPeserta) return byNoPeserta;
+  }
+
+  // 4. Match by Name + Kelas
+  const cleanName = (s.studentName || '').trim().toLowerCase();
+  const cleanKelas = (s.studentKelas || '').trim().toLowerCase();
+  if (cleanName) {
+    const byName = stuList.find(
+      (st) =>
+        st.name.trim().toLowerCase() === cleanName &&
+        (!cleanKelas || st.kelas.trim().toLowerCase() === cleanKelas)
+    );
+    if (byName) return byName;
+  }
+
+  return undefined;
+}
+
+export function integrateSessionWithStudents(
+  session: ExamSession,
+  usersList: UserAccount[]
+): { session: ExamSession; matchedStudent?: UserAccount } {
+  const matched = findMatchingStudentForSession(session, usersList);
+  if (!matched) {
+    return { session };
+  }
+  return {
+    matchedStudent: matched,
+    session: {
+      ...session,
+      studentId: matched.id,
+      studentName: matched.name || session.studentName,
+      studentUsername: matched.username || session.studentUsername,
+      studentKelas: matched.kelas || session.studentKelas,
+      studentNomorPeserta:
+        matched.nomorPeserta || session.studentNomorPeserta,
+    },
   };
 }
 
@@ -564,7 +649,13 @@ export const supabaseService = {
       {
         tableName: 'public.exam_sessions',
         shortName: 'exam_sessions',
-        menuLabel: 'Data Nilai & Sesi Ujian',
+        menuLabel: 'Data Nilai & Sesi Ujian (Terhubung students)',
+        checkPassword: false,
+      },
+      {
+        tableName: 'public.v_rekap_nilai',
+        shortName: 'v_rekap_nilai',
+        menuLabel: 'View Rekap Nilai (Integrasi students & exam_sessions)',
         checkPassword: false,
       },
     ];
@@ -791,15 +882,17 @@ export const supabaseService = {
     }
 
     try {
-      const [setRes, clsRes, usrRes, stuRes, exmRes, qstRes, sesRes] = await Promise.all([
-        supabase.from('app_settings').select('*').limit(1),
-        supabase.from('classes').select('*').order('nama_kelas', { ascending: true }),
-        supabase.from('users').select('*').order('name', { ascending: true }),
-        supabase.from('students').select('*').order('name', { ascending: true }),
-        supabase.from('exams').select('*').order('created_at', { ascending: false }),
-        supabase.from('questions').select('*').order('number', { ascending: true }),
-        supabase.from('exam_sessions').select('*').order('started_at', { ascending: false }),
-      ]);
+      const [setRes, clsRes, usrRes, stuRes, exmRes, qstRes, sesRes, rekapRes] =
+        await Promise.all([
+          supabase.from('app_settings').select('*').limit(1),
+          supabase.from('classes').select('*').order('nama_kelas', { ascending: true }),
+          supabase.from('users').select('*').order('name', { ascending: true }),
+          supabase.from('students').select('*').order('name', { ascending: true }),
+          supabase.from('exams').select('*').order('created_at', { ascending: false }),
+          supabase.from('questions').select('*').order('number', { ascending: true }),
+          supabase.from('exam_sessions').select('*').order('started_at', { ascending: false }),
+          supabase.from('v_rekap_nilai').select('*'),
+        ]);
 
       const firstErr =
         clsRes.error || usrRes.error || exmRes.error || qstRes.error || sesRes.error;
@@ -822,8 +915,73 @@ export const supabaseService = {
         .map((r) => mapRowToUser(r as Record<string, unknown>))
         .map((s) => ({ ...s, role: 'siswa' as const }));
 
+      // Fallback: jika ada akun siswa lama di public.users yang belum masuk ke public.students
+      const legacyStudentList = (usrRes.data || [])
+        .map((r) => mapRowToUser(r as Record<string, unknown>))
+        .filter((u) => u.role === 'siswa')
+        .filter(
+          (lu) =>
+            !studentList.some(
+              (st) =>
+                st.id === lu.id ||
+                st.username.toLowerCase() === lu.username.toLowerCase() ||
+                st.nomorPeserta.toLowerCase() === lu.nomorPeserta.toLowerCase()
+            )
+        );
+
+      const allStudents = [...studentList, ...legacyStudentList];
+      if (legacyStudentList.length > 0) {
+        // Otomatis migrasikan akun siswa lama ke tabel public.students
+        void resilientUpsert(
+          supabase,
+          'students',
+          legacyStudentList.map(mapStudentToRow)
+        );
+      }
+
       // Gabungkan akun untuk indeks sistem di aplikasi
-      const mergedUsers = [...staffList, ...studentList];
+      const mergedUsers = [...staffList, ...allStudents];
+
+      // Gabungkan exam_sessions dan v_rekap_nilai serta integrasikan langsung dengan public.students
+      const rawSessions = (sesRes.data || []).map((r) =>
+        mapRowToSession(r as Record<string, unknown>)
+      );
+      const sessionMap = new Map<string, ExamSession>();
+      for (const s of rawSessions) {
+        const { session: integrated } = integrateSessionWithStudents(s, allStudents);
+        sessionMap.set(integrated.id, integrated);
+      }
+
+      // Jika terdapat baris di v_rekap_nilai yang memperkaya data siswa / belum masuk ke map
+      if (!rekapRes.error && Array.isArray(rekapRes.data)) {
+        for (const r of rekapRes.data) {
+          const mappedRekap = mapRowToSession(r as Record<string, unknown>);
+          if (!mappedRekap.id) continue;
+          const existing = sessionMap.get(mappedRekap.id);
+          if (existing) {
+            const { session: enriched } = integrateSessionWithStudents(
+              {
+                ...existing,
+                studentId: mappedRekap.studentId || existing.studentId,
+                studentName: mappedRekap.studentName || existing.studentName,
+                studentUsername:
+                  mappedRekap.studentUsername || existing.studentUsername,
+                studentKelas: mappedRekap.studentKelas || existing.studentKelas,
+                studentNomorPeserta:
+                  mappedRekap.studentNomorPeserta || existing.studentNomorPeserta,
+              },
+              allStudents
+            );
+            sessionMap.set(enriched.id, enriched);
+          } else {
+            const { session: integrated } = integrateSessionWithStudents(
+              mappedRekap,
+              allStudents
+            );
+            sessionMap.set(integrated.id, integrated);
+          }
+        }
+      }
 
       return {
         ok: true,
@@ -835,9 +993,7 @@ export const supabaseService = {
           questions: (qstRes.data || []).map((r) =>
             mapRowToQuestion(r as Record<string, unknown>)
           ),
-          sessions: (sesRes.data || []).map((r) =>
-            mapRowToSession(r as Record<string, unknown>)
-          ),
+          sessions: Array.from(sessionMap.values()),
         },
       };
     } catch (err) {
@@ -925,19 +1081,20 @@ export const supabaseService = {
         if (!qstRes.ok) throw new Error(`Tabel questions: ${qstRes.error}`);
       }
 
-      // 6. Upsert exam_sessions (Data Nilai & Sesi Siswa)
+      // 6. Upsert exam_sessions (Data Nilai & Sesi Siswa Terintegrasi Tabel public.students & v_rekap_nilai)
       if (payload.sessions.length > 0) {
-        const sesRes = await resilientUpsert(
-          supabase,
-          'exam_sessions',
-          payload.sessions.map(mapSessionToRow)
+        const batchRes = await this.upsertSessionsBatch(
+          payload.sessions,
+          payload.users
         );
-        if (!sesRes.ok) throw new Error(`Tabel exam_sessions: ${sesRes.error}`);
+        if (!batchRes.ok && batchRes.error) {
+          throw new Error(`Tabel exam_sessions: ${batchRes.error}`);
+        }
       }
 
       return {
         ok: true,
-        message: `Berhasil menyinkronkan pengaturan aplikasi, ${payload.classes.length} kelas, ${studentOnly.length} siswa ke tabel students, ${payload.users.length} akun ke tabel users, ${payload.exams.length} paket ujian, ${payload.questions.length} butir soal, dan ${payload.sessions.length} data nilai ke Supabase.`,
+        message: `Berhasil menyinkronkan pengaturan aplikasi, ${payload.classes.length} kelas, ${studentOnly.length} siswa ke tabel students, ${staffOnly.length} staf ke tabel users, ${payload.exams.length} paket ujian, ${payload.questions.length} butir soal, dan ${payload.sessions.length} data nilai ke exam_sessions & v_rekap_nilai.`,
       };
     } catch (err) {
       return {
@@ -1067,9 +1224,271 @@ export const supabaseService = {
     await supabase.from('questions').delete().eq('id', id);
   },
 
-  async upsertSession(s: ExamSession) {
-    if (!supabase) return;
-    await resilientUpsert(supabase, 'exam_sessions', [mapSessionToRow(s)]);
+  async upsertSession(
+    s: ExamSession,
+    studentContext?: UserAccount
+  ): Promise<{ ok: boolean; session: ExamSession; error?: string }> {
+    if (!supabase) {
+      return {
+        ok: false,
+        session: s,
+        error: 'Client Supabase belum dikonfigurasi.',
+      };
+    }
+
+    let resolvedSession: ExamSession = { ...s };
+
+    try {
+      // 1. Cari data siswa di tabel public.students agar student_id terintegrasi dengan v_rekap_nilai
+      const cleanUsername = (s.studentUsername || '').trim();
+      const cleanNoPeserta = (s.studentNomorPeserta || '').trim();
+      const orConditions: string[] = [`id.eq.${s.studentId}`];
+      if (cleanUsername) orConditions.push(`username.ilike.${cleanUsername}`);
+      if (cleanNoPeserta) orConditions.push(`nomor_peserta.ilike.${cleanNoPeserta}`);
+
+      const { data: matchedStu } = await supabase
+        .from('students')
+        .select('*')
+        .or(orConditions.join(','))
+        .limit(1);
+
+      let targetStudentAccount: UserAccount;
+
+      if (matchedStu && matchedStu.length > 0) {
+        const stuRow = matchedStu[0] as Record<string, unknown>;
+        targetStudentAccount = {
+          ...mapRowToUser(stuRow),
+          role: 'siswa',
+        };
+        resolvedSession = {
+          ...resolvedSession,
+          studentId: targetStudentAccount.id,
+          studentName: targetStudentAccount.name || resolvedSession.studentName,
+          studentUsername:
+            targetStudentAccount.username || resolvedSession.studentUsername,
+          studentKelas:
+            targetStudentAccount.kelas || resolvedSession.studentKelas,
+          studentNomorPeserta:
+            targetStudentAccount.nomorPeserta ||
+            resolvedSession.studentNomorPeserta,
+        };
+      } else {
+        // Jika siswa belum ada di public.students, daftarkan otomatis ke public.students
+        targetStudentAccount = studentContext
+          ? { ...studentContext, role: 'siswa' }
+          : {
+              id: s.studentId || `usr-siswa-${Date.now()}`,
+              username: s.studentUsername || s.studentId,
+              password: `CBT-${(s.studentNomorPeserta || '2026').slice(-3)}*`,
+              name: s.studentName || 'Peserta Didik CBT',
+              role: 'siswa',
+              kelas: s.studentKelas || 'XII MIPA 1',
+              nomorPeserta:
+                s.studentNomorPeserta ||
+                `26-01-0104-${Date.now().toString().slice(-3)}`,
+              jenisKelamin: 'L',
+              sekolah: 'SMA Negeri 1 Nusantara Jakarta',
+            };
+        await resilientUpsert(supabase, 'students', [
+          mapStudentToRow(targetStudentAccount),
+        ]);
+      }
+
+      // 2. Upsert ke tabel exam_sessions
+      let sesRes = await resilientUpsert(supabase, 'exam_sessions', [
+        mapSessionToRow(resolvedSession),
+      ]);
+
+      // 3. Fallback: Jika database masih memiliki constraint FK lama (exam_sessions.student_id -> public.users.id)
+      //    pastikan baris siswa juga di-upsert ke public.users dan perbaiki FK via RPC bila tersedia
+      if (!sesRes.ok) {
+        await resilientUpsert(supabase, 'users', [
+          mapStudentToRow(targetStudentAccount),
+        ]);
+
+        // Cek apakah di public.users sudah ada username/nomor_peserta yang sama dengan ID berbeda
+        const { data: legacyUsr } = await supabase
+          .from('users')
+          .select('*')
+          .or(orConditions.join(','))
+          .limit(1);
+
+        if (legacyUsr && legacyUsr.length > 0) {
+          const usrRow = legacyUsr[0] as Record<string, unknown>;
+          const legacyId = String(usrRow.id);
+          // Pastikan di public.students juga tersedia agar v_rekap_nilai tetap terintegrasi
+          await resilientUpsert(supabase, 'students', [
+            mapStudentToRow({ ...targetStudentAccount, id: legacyId }),
+          ]);
+          resolvedSession = {
+            ...resolvedSession,
+            studentId: legacyId,
+          };
+        }
+
+        // Coba jalankan perbaikan DDL untuk FK & v_rekap_nilai secara otomatis di latar belakang
+        try {
+          await supabase.rpc('exec_sql', { sql: REKAP_NILAI_MIGRATION_SQL });
+        } catch {
+          // Abaikan jika fungsi RPC belum dibuat
+        }
+
+        sesRes = await resilientUpsert(supabase, 'exam_sessions', [
+          mapSessionToRow(resolvedSession),
+        ]);
+      }
+
+      return {
+        ok: sesRes.ok,
+        session: resolvedSession,
+        error: sesRes.error,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        session: resolvedSession,
+        error: err instanceof Error ? err.message : 'Gagal menyimpan sesi nilai.',
+      };
+    }
+  },
+
+  async upsertSessionsBatch(
+    sessionsList: ExamSession[],
+    knownUsers: UserAccount[] = []
+  ): Promise<{
+    ok: boolean;
+    syncedSessions: ExamSession[];
+    error?: string;
+  }> {
+    if (!supabase) {
+      return {
+        ok: false,
+        syncedSessions: sessionsList,
+        error: 'Client Supabase belum dikonfigurasi.',
+      };
+    }
+    if (sessionsList.length === 0) {
+      return { ok: true, syncedSessions: [] };
+    }
+
+    try {
+      // Ambil daftar siswa terkini dari public.students untuk memastikan relasi student_id akurat
+      const { data: dbStudentsData } = await supabase.from('students').select('*');
+      const dbStudents: UserAccount[] = (dbStudentsData || []).map((r) => ({
+        ...mapRowToUser(r as Record<string, unknown>),
+        role: 'siswa' as const,
+      }));
+
+      const combinedStudents = [
+        ...dbStudents,
+        ...knownUsers
+          .filter((u) => u.role === 'siswa')
+          .filter(
+            (ku) =>
+              !dbStudents.some(
+                (dbs) =>
+                  dbs.id === ku.id ||
+                  dbs.username.toLowerCase() === ku.username.toLowerCase() ||
+                  dbs.nomorPeserta.toLowerCase() === ku.nomorPeserta.toLowerCase()
+              )
+          ),
+      ];
+
+      const studentsToEnsure = new Map<string, UserAccount>();
+      const reconciledSessions: ExamSession[] = sessionsList.map((ses) => {
+        const { session: integrated, matchedStudent } =
+          integrateSessionWithStudents(ses, combinedStudents);
+        if (matchedStudent) {
+          studentsToEnsure.set(matchedStudent.id, matchedStudent);
+          return integrated;
+        }
+        // Buat entitas siswa dari snapshot sesi apabila belum terdaftar di tabel students
+        const fallbackStudent: UserAccount = {
+          id: ses.studentId || `usr-siswa-${Date.now()}`,
+          username: ses.studentUsername || ses.studentId,
+          password: `CBT-${(ses.studentNomorPeserta || '2026').slice(-3)}*`,
+          name: ses.studentName || 'Peserta Didik CBT',
+          role: 'siswa',
+          kelas: ses.studentKelas || 'XII MIPA 1',
+          nomorPeserta:
+            ses.studentNomorPeserta ||
+            `26-01-0104-${Date.now().toString().slice(-3)}`,
+          jenisKelamin: 'L',
+          sekolah: 'SMA Negeri 1 Nusantara Jakarta',
+        };
+        studentsToEnsure.set(fallbackStudent.id, fallbackStudent);
+        return integrated;
+      });
+
+      const studentRows = Array.from(studentsToEnsure.values()).map(mapStudentToRow);
+      if (studentRows.length > 0) {
+        await resilientUpsert(supabase, 'students', studentRows);
+      }
+
+      // Upsert seluruh sesi ke public.exam_sessions
+      let sesRes = await resilientUpsert(
+        supabase,
+        'exam_sessions',
+        reconciledSessions.map(mapSessionToRow)
+      );
+
+      // Jika gagal karena constraint FK lama yang masih menunjuk ke public.users,
+      // sinkronkan siswa ke public.users dan jalankan migrasi RPC, lalu coba kembali per sesi
+      if (!sesRes.ok) {
+        if (studentRows.length > 0) {
+          await resilientUpsert(supabase, 'users', studentRows);
+        }
+        try {
+          await supabase.rpc('exec_sql', { sql: REKAP_NILAI_MIGRATION_SQL });
+        } catch {
+          // Abaikan bila RPC tidak tersedia
+        }
+
+        sesRes = await resilientUpsert(
+          supabase,
+          'exam_sessions',
+          reconciledSessions.map(mapSessionToRow)
+        );
+
+        // Jika batch masih terkendala salah satu baris, proses satu per satu via upsertSession
+        if (!sesRes.ok) {
+          const singleResults: ExamSession[] = [];
+          let lastSingleErr: string | undefined;
+          let anyOk = false;
+          for (const item of reconciledSessions) {
+            const single = await this.upsertSession(
+              item,
+              studentsToEnsure.get(item.studentId)
+            );
+            singleResults.push(single.session);
+            if (single.ok) {
+              anyOk = true;
+            } else {
+              lastSingleErr = single.error;
+            }
+          }
+          return {
+            ok: anyOk,
+            syncedSessions: singleResults,
+            error: anyOk ? undefined : lastSingleErr,
+          };
+        }
+      }
+
+      return {
+        ok: true,
+        syncedSessions: reconciledSessions,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        syncedSessions: sessionsList,
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Gagal menyinkronkan kumpulan nilai ke Supabase.',
+      };
+    }
   },
 
   async deleteSession(id: string) {
@@ -1353,13 +1772,13 @@ export const SUPABASE_TABLES_METADATA: SupabaseTableSchemaInfo[] = [
   },
   {
     tableName: 'public.exam_sessions',
-    menuName: 'Menu Data Nilai & Leger Sesi',
+    menuName: 'Menu Data Nilai & Leger Sesi (Terhubung Tabel students)',
     description:
-      'Menyimpan hasil nilai ujian (skor akhir, jumlah benar/salah/kosong), rekaman lembar jawaban siswa real-time, sisa waktu, serta log pindah tab.',
+      'Menyimpan hasil nilai ujian (skor akhir, jumlah benar/salah/kosong), rekaman lembar jawaban siswa real-time, sisa waktu, serta log pindah tab yang berelasi langsung ke public.students.',
     columns: [
       { name: 'id', type: 'TEXT', constraints: 'PRIMARY KEY', description: 'ID sesi pengerjaan ujian / leger nilai' },
       { name: 'exam_id', type: 'TEXT', constraints: 'FK -> public.exams(id) CASCADE', description: 'Referensi paket ujian yang dikerjakan' },
-      { name: 'student_id', type: 'TEXT', constraints: 'FK -> public.users(id) CASCADE', description: 'Referensi akun siswa peserta ujian' },
+      { name: 'student_id', type: 'TEXT', constraints: 'FK -> public.students(id) CASCADE', description: 'Referensi akun siswa peserta ujian pada tabel public.students' },
       { name: 'student_name', type: 'TEXT', constraints: 'NOT NULL', description: 'Snapshot nama lengkap siswa saat ujian' },
       { name: 'student_username', type: 'TEXT', constraints: 'NOT NULL', description: 'Snapshot NISN siswa peserta ujian' },
       { name: 'student_kelas', type: 'TEXT', constraints: 'NOT NULL', description: 'Snapshot kelas rombel siswa' },
@@ -1378,6 +1797,31 @@ export const SUPABASE_TABLES_METADATA: SupabaseTableSchemaInfo[] = [
       { name: 'tab_switch_count', type: 'INTEGER', constraints: 'DEFAULT 0', description: 'Jumlah pelanggaran berpindah tab browser' },
       { name: 'started_at', type: 'TIMESTAMPTZ', constraints: 'DEFAULT NOW()', description: 'Waktu mulai mengerjakan ujian' },
       { name: 'submitted_at', type: 'TIMESTAMPTZ', constraints: 'NULLABLE', description: 'Waktu pengumpulan lembar jawaban' },
+    ],
+  },
+  {
+    tableName: 'public.v_rekap_nilai',
+    menuName: 'View Rekapitulasi Nilai (Integrasi v_rekap_nilai ⇄ students)',
+    description:
+      'View leger rekapitulasi nilai yang mengintegrasikan langsung tabel public.exam_sessions dengan tabel public.students (ID Siswa, Nomor Peserta, NISN, Nama Lengkap, Kelas, Jenis Kelamin, Sekolah), public.exams, dan public.classes.',
+    columns: [
+      { name: 'session_id', type: 'TEXT', constraints: 'PK dari exam_sessions.id', description: 'ID unik sesi pengerjaan ujian' },
+      { name: 'student_id', type: 'TEXT', constraints: 'JOIN -> public.students(id)', description: 'ID siswa terintegrasi dari tabel public.students' },
+      { name: 'nomor_peserta', type: 'TEXT', constraints: 'COALESCE(students.nomor_peserta)', description: 'Nomor peserta ujian dari tabel public.students' },
+      { name: 'nisn', type: 'TEXT', constraints: 'COALESCE(students.username)', description: 'NISN / Username siswa dari tabel public.students' },
+      { name: 'nama_siswa', type: 'TEXT', constraints: 'COALESCE(students.name)', description: 'Nama lengkap siswa dari tabel public.students' },
+      { name: 'nama_kelas', type: 'TEXT', constraints: 'COALESCE(students.kelas)', description: 'Kelas / Rombel siswa dari tabel public.students' },
+      { name: 'jenis_kelamin', type: 'TEXT', constraints: 'students.jenis_kelamin', description: 'Jenis kelamin siswa (L/P) dari tabel public.students' },
+      { name: 'sekolah', type: 'TEXT', constraints: 'students.sekolah', description: 'Nama satuan pendidikan dari tabel public.students' },
+      { name: 'exam_id', type: 'TEXT', constraints: 'JOIN -> public.exams(id)', description: 'ID paket ujian' },
+      { name: 'kode_ujian', type: 'TEXT', constraints: 'exams.code', description: 'Kode paket ujian' },
+      { name: 'mata_pelajaran', type: 'TEXT', constraints: 'exams.subject', description: 'Nama mata pelajaran ujian' },
+      { name: 'kkm', type: 'NUMERIC(5,2)', constraints: 'exams.passing_score', description: 'Ambang batas KKM ujian' },
+      { name: 'nilai_akhir', type: 'NUMERIC(5,2)', constraints: 'exam_sessions.score', description: 'Skor nilai akhir ujian siswa (0-100)' },
+      { name: 'predikat_kelulusan', type: 'TEXT', constraints: 'LULUS KKM / REMEDIAL', description: 'Status ketuntasan terhadap KKM' },
+      { name: 'jumlah_benar', type: 'INTEGER', constraints: 'exam_sessions.correct_count', description: 'Jumlah jawaban benar' },
+      { name: 'jumlah_salah', type: 'INTEGER', constraints: 'exam_sessions.wrong_count', description: 'Jumlah jawaban salah' },
+      { name: 'jumlah_kosong', type: 'INTEGER', constraints: 'exam_sessions.unanswered_count', description: 'Jumlah soal tidak dijawab' },
     ],
   },
   {
@@ -1432,6 +1876,107 @@ export const SUPABASE_TABLES_METADATA: SupabaseTableSchemaInfo[] = [
     ],
   },
 ];
+
+export const REKAP_NILAI_MIGRATION_SQL = `
+-- Migrasi Integrasi exam_sessions & v_rekap_nilai -> public.students
+INSERT INTO public.students (id, username, password, name, role, kelas, nomor_peserta, jenis_kelamin, sekolah)
+SELECT id, username, COALESCE(password, 'CBT-2026'), name, 'siswa', kelas, nomor_peserta, COALESCE(jenis_kelamin, 'L'), COALESCE(sekolah, 'SMA Negeri 1 Nusantara Jakarta')
+FROM public.users
+WHERE role = 'siswa'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.students (id, username, password, name, role, kelas, nomor_peserta, jenis_kelamin, sekolah)
+SELECT DISTINCT ON (s.student_id)
+  s.student_id,
+  s.student_username,
+  'CBT-2026',
+  s.student_name,
+  'siswa',
+  s.student_kelas,
+  s.student_nomor_peserta,
+  'L',
+  'SMA Negeri 1 Nusantara Jakarta'
+FROM public.exam_sessions s
+WHERE s.student_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM public.students st WHERE st.id = s.student_id)
+  AND NOT EXISTS (SELECT 1 FROM public.students st WHERE LOWER(st.username) = LOWER(s.student_username))
+  AND NOT EXISTS (SELECT 1 FROM public.students st WHERE LOWER(st.nomor_peserta) = LOWER(s.student_nomor_peserta))
+ON CONFLICT DO NOTHING;
+
+UPDATE public.exam_sessions es
+SET student_id = st.id,
+    student_name = st.name,
+    student_username = st.username,
+    student_kelas = st.kelas,
+    student_nomor_peserta = st.nomor_peserta
+FROM public.students st
+WHERE es.student_id <> st.id
+  AND (
+    (es.student_username <> '' AND LOWER(es.student_username) = LOWER(st.username))
+    OR (es.student_nomor_peserta <> '' AND LOWER(es.student_nomor_peserta) = LOWER(st.nomor_peserta))
+  );
+
+ALTER TABLE public.exam_sessions DROP CONSTRAINT IF EXISTS exam_sessions_student_id_fkey;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'exam_sessions_student_id_students_fkey'
+  ) THEN
+    ALTER TABLE public.exam_sessions
+      ADD CONSTRAINT exam_sessions_student_id_students_fkey
+      FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE NOT VALID;
+    ALTER TABLE public.exam_sessions VALIDATE CONSTRAINT exam_sessions_student_id_students_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+DROP VIEW IF EXISTS public.v_rekap_nilai CASCADE;
+CREATE OR REPLACE VIEW public.v_rekap_nilai AS
+SELECT
+  s.id AS session_id,
+  s.exam_id,
+  e.code AS kode_ujian,
+  e.title AS judul_ujian,
+  e.subject AS mata_pelajaran,
+  COALESCE(e.passing_score, 75) AS kkm,
+  COALESCE(st.id, s.student_id) AS student_id,
+  COALESCE(st.nomor_peserta, s.student_nomor_peserta) AS nomor_peserta,
+  COALESCE(st.username, s.student_username) AS nisn,
+  COALESCE(st.name, s.student_name) AS nama_siswa,
+  COALESCE(st.kelas, s.student_kelas) AS nama_kelas,
+  COALESCE(st.jenis_kelamin, 'L') AS jenis_kelamin,
+  COALESCE(st.sekolah, 'SMA Negeri 1 Nusantara Jakarta') AS sekolah,
+  c.tingkat,
+  c.jurusan,
+  c.wali_kelas,
+  c.ruang_ujian,
+  s.status AS status_sesi,
+  s.score AS nilai_akhir,
+  s.earned_points AS poin_diperoleh,
+  s.max_points AS poin_maksimal,
+  CASE
+    WHEN s.status = 'in_progress' THEN 'SEDANG MENGERJAKAN'
+    WHEN s.score >= COALESCE(e.passing_score, 75) THEN 'LULUS KKM'
+    ELSE 'REMEDIAL'
+  END AS predikat_kelulusan,
+  s.correct_count AS jumlah_benar,
+  s.wrong_count AS jumlah_salah,
+  s.unanswered_count AS jumlah_kosong,
+  s.total_questions AS total_soal,
+  s.tab_switch_count AS pelanggaran_tab,
+  s.started_at AS waktu_mulai,
+  s.submitted_at AS waktu_selesai
+FROM public.exam_sessions s
+LEFT JOIN public.students st
+  ON s.student_id = st.id
+  OR (s.student_username <> '' AND LOWER(s.student_username) = LOWER(st.username))
+  OR (s.student_nomor_peserta <> '' AND LOWER(s.student_nomor_peserta) = LOWER(st.nomor_peserta))
+LEFT JOIN public.exams e ON s.exam_id = e.id
+LEFT JOIN public.classes c ON COALESCE(st.kelas, s.student_kelas) = c.nama_kelas;
+
+GRANT SELECT ON public.v_rekap_nilai TO anon, authenticated, service_role;
+`;
 
 export const SUPABASE_SCHEMA_SQL = `-- ============================================================================
 -- NUSANTARA CBT - SUPABASE POSTGRESQL SCHEMA MIGRATION (AUTO-PROVISIONING)
@@ -1626,11 +2171,11 @@ CREATE TRIGGER trg_questions_updated_at
 BEFORE UPDATE ON public.questions
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- 5. TABEL DATA NILAI & SESI UJIAN SISWA (public.exam_sessions)
+-- 5. TABEL DATA NILAI & SESI UJIAN SISWA TERINTEGRASI TABEL STUDENTS (public.exam_sessions)
 CREATE TABLE IF NOT EXISTS public.exam_sessions (
   id TEXT PRIMARY KEY,
   exam_id TEXT NOT NULL REFERENCES public.exams(id) ON DELETE CASCADE,
-  student_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  student_id TEXT NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
   student_name TEXT NOT NULL,
   student_username TEXT NOT NULL,
   student_kelas TEXT NOT NULL,
@@ -1653,6 +2198,61 @@ CREATE TABLE IF NOT EXISTS public.exam_sessions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Pastikan seluruh akun siswa di public.users maupun di exam_sessions terdaftar pada public.students
+INSERT INTO public.students (id, username, password, name, role, kelas, nomor_peserta, jenis_kelamin, sekolah)
+SELECT id, username, COALESCE(password, 'CBT-2026'), name, 'siswa', kelas, nomor_peserta, COALESCE(jenis_kelamin, 'L'), COALESCE(sekolah, 'SMA Negeri 1 Nusantara Jakarta')
+FROM public.users
+WHERE role = 'siswa'
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.students (id, username, password, name, role, kelas, nomor_peserta, jenis_kelamin, sekolah)
+SELECT DISTINCT ON (s.student_id)
+  s.student_id,
+  s.student_username,
+  'CBT-2026',
+  s.student_name,
+  'siswa',
+  s.student_kelas,
+  s.student_nomor_peserta,
+  'L',
+  'SMA Negeri 1 Nusantara Jakarta'
+FROM public.exam_sessions s
+WHERE s.student_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM public.students st WHERE st.id = s.student_id)
+  AND NOT EXISTS (SELECT 1 FROM public.students st WHERE LOWER(st.username) = LOWER(s.student_username))
+  AND NOT EXISTS (SELECT 1 FROM public.students st WHERE LOWER(st.nomor_peserta) = LOWER(s.student_nomor_peserta))
+ON CONFLICT DO NOTHING;
+
+-- Sinkronkan student_id pada exam_sessions agar merujuk langsung ke id pada public.students
+UPDATE public.exam_sessions es
+SET student_id = st.id,
+    student_name = st.name,
+    student_username = st.username,
+    student_kelas = st.kelas,
+    student_nomor_peserta = st.nomor_peserta
+FROM public.students st
+WHERE es.student_id <> st.id
+  AND (
+    (es.student_username <> '' AND LOWER(es.student_username) = LOWER(st.username))
+    OR (es.student_nomor_peserta <> '' AND LOWER(es.student_nomor_peserta) = LOWER(st.nomor_peserta))
+  );
+
+-- Hapus constraint FK lama yang mengarah ke public.users(id) dan hubungkan ke public.students(id)
+ALTER TABLE public.exam_sessions DROP CONSTRAINT IF EXISTS exam_sessions_student_id_fkey;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'exam_sessions_student_id_students_fkey'
+  ) THEN
+    ALTER TABLE public.exam_sessions
+      ADD CONSTRAINT exam_sessions_student_id_students_fkey
+      FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE NOT VALID;
+    ALTER TABLE public.exam_sessions VALIDATE CONSTRAINT exam_sessions_student_id_students_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_exam_sessions_exam_id ON public.exam_sessions (exam_id);
 CREATE INDEX IF NOT EXISTS idx_exam_sessions_student_id ON public.exam_sessions (student_id);
 CREATE INDEX IF NOT EXISTS idx_exam_sessions_student_kelas ON public.exam_sessions (student_kelas);
@@ -1663,7 +2263,8 @@ CREATE TRIGGER trg_exam_sessions_updated_at
 BEFORE UPDATE ON public.exam_sessions
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- 6. VIEW REKAPITULASI LEGER NILAI (public.v_rekap_nilai)
+-- 6. VIEW REKAPITULASI LEGER NILAI TERINTEGRASI TABEL STUDENTS (public.v_rekap_nilai)
+DROP VIEW IF EXISTS public.v_rekap_nilai CASCADE;
 CREATE OR REPLACE VIEW public.v_rekap_nilai AS
 SELECT
   s.id AS session_id,
@@ -1671,19 +2272,25 @@ SELECT
   e.code AS kode_ujian,
   e.title AS judul_ujian,
   e.subject AS mata_pelajaran,
-  e.passing_score AS kkm,
-  s.student_id,
-  s.student_nomor_peserta AS nomor_peserta,
-  s.student_username AS nisn,
-  s.student_name AS nama_siswa,
-  s.student_kelas AS nama_kelas,
+  COALESCE(e.passing_score, 75) AS kkm,
+  COALESCE(st.id, s.student_id) AS student_id,
+  COALESCE(st.nomor_peserta, s.student_nomor_peserta) AS nomor_peserta,
+  COALESCE(st.username, s.student_username) AS nisn,
+  COALESCE(st.name, s.student_name) AS nama_siswa,
+  COALESCE(st.kelas, s.student_kelas) AS nama_kelas,
+  COALESCE(st.jenis_kelamin, 'L') AS jenis_kelamin,
+  COALESCE(st.sekolah, 'SMA Negeri 1 Nusantara Jakarta') AS sekolah,
   c.tingkat,
   c.jurusan,
   c.wali_kelas,
+  c.ruang_ujian,
   s.status AS status_sesi,
   s.score AS nilai_akhir,
+  s.earned_points AS poin_diperoleh,
+  s.max_points AS poin_maksimal,
   CASE
-    WHEN s.score >= e.passing_score THEN 'LULUS KKM'
+    WHEN s.status = 'in_progress' THEN 'SEDANG MENGERJAKAN'
+    WHEN s.score >= COALESCE(e.passing_score, 75) THEN 'LULUS KKM'
     ELSE 'REMEDIAL'
   END AS predikat_kelulusan,
   s.correct_count AS jumlah_benar,
@@ -1694,8 +2301,14 @@ SELECT
   s.started_at AS waktu_mulai,
   s.submitted_at AS waktu_selesai
 FROM public.exam_sessions s
+LEFT JOIN public.students st
+  ON s.student_id = st.id
+  OR (s.student_username <> '' AND LOWER(s.student_username) = LOWER(st.username))
+  OR (s.student_nomor_peserta <> '' AND LOWER(s.student_nomor_peserta) = LOWER(st.nomor_peserta))
 LEFT JOIN public.exams e ON s.exam_id = e.id
-LEFT JOIN public.classes c ON s.student_kelas = c.nama_kelas;
+LEFT JOIN public.classes c ON COALESCE(st.kelas, s.student_kelas) = c.nama_kelas;
+
+GRANT SELECT ON public.v_rekap_nilai TO anon, authenticated, service_role;
 
 -- 7. ROW LEVEL SECURITY (RLS) & POLICIES
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;

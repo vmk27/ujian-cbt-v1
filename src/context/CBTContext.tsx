@@ -8,6 +8,8 @@ import {
   INITIAL_USERS,
 } from '../data/seedData';
 import {
+  findMatchingStudentForSession,
+  integrateSessionWithStudents,
   isSupabaseConfigured,
   mapAppSettingsToRow,
   mapClassToRow,
@@ -38,6 +40,7 @@ import {
   SupabaseRealtimeStatus,
   UserAccount,
 } from '../types/cbt';
+import { canStudentAccessExam, extractTingkatFromText } from '../utils/examAccess';
 
 const STORAGE_KEYS = {
   APP_SETTINGS: 'nusantara_cbt_app_settings_v1',
@@ -46,6 +49,8 @@ const STORAGE_KEYS = {
   EXAMS: 'nusantara_cbt_exams_v1',
   QUESTIONS: 'nusantara_cbt_questions_v1',
   SESSIONS: 'nusantara_cbt_sessions_v1',
+  DEVICE_SESSIONS_BACKUP: 'nusantara_cbt_device_sessions_backup_v1',
+  AUTO_SYNC_DEVICE_SCORES: 'nusantara_cbt_auto_sync_device_scores_v1',
   CURRENT_USER: 'nusantara_cbt_active_user_v1',
 };
 
@@ -90,6 +95,19 @@ interface CBTContextType {
   lastRealtimeEvent: RealtimeLogEntry | null;
   realtimeLogs: RealtimeLogEntry[];
   sendRealtimePing: () => Promise<{ ok: boolean; message: string }>;
+
+  // Device Exam Score Recovery & Auto-Sync (Nilai Tersimpan pada Device Siswa)
+  autoSyncDeviceScores: boolean;
+  setAutoSyncDeviceScores: (enabled: boolean) => void;
+  deviceSavedSessions: ExamSession[];
+  unsyncedDeviceSessionIds: string[];
+  isSyncingDeviceScores: boolean;
+  syncDeviceSessionsToServer: (
+    targetSessionId?: string
+  ) => Promise<{ ok: boolean; syncedCount: number; message: string }>;
+  importDeviceSessionsBackup: (
+    importedSessions: ExamSession[]
+  ) => Promise<{ ok: boolean; importedCount: number; message: string }>;
 
   // Helper for Student Nomor Peserta Auto-Increment
   generateNextStudentNomorPeserta: (offset?: number) => string;
@@ -238,6 +256,78 @@ function calculateSessionMetrics(
   };
 }
 
+function isUntouchedDemoSession(s: ExamSession): boolean {
+  const seed = INITIAL_SESSIONS.find((init) => init.id === s.id);
+  if (!seed) return false;
+  const seedAnsCount = Object.keys(seed.answers || {}).length;
+  const curAnsCount = Object.keys(s.answers || {}).length;
+  return (
+    seed.status === s.status &&
+    seed.score === s.score &&
+    seed.submittedAt === s.submittedAt &&
+    seedAnsCount === curAnsCount
+  );
+}
+
+function isSessionBetterOrNewer(candidate: ExamSession, base: ExamSession): boolean {
+  const candDone = candidate.status === 'completed' || candidate.status === 'timed_out';
+  const baseDone = base.status === 'completed' || base.status === 'timed_out';
+  if (candDone && !baseDone) return true;
+  if (!candDone && baseDone) return false;
+  const candAns = Object.keys(candidate.answers || {}).length;
+  const baseAns = Object.keys(base.answers || {}).length;
+  if (candAns !== baseAns) return candAns > baseAns;
+  if (candidate.score !== base.score) return candidate.score > base.score;
+  return Boolean(candidate.submittedAt && !base.submittedAt);
+}
+
+function readLocalDeviceSessions(): ExamSession[] {
+  const map = new Map<string, ExamSession>();
+  const keysToRead = [STORAGE_KEYS.DEVICE_SESSIONS_BACKUP, STORAGE_KEYS.SESSIONS];
+  for (const key of keysToRead) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) continue;
+      for (const item of parsed as ExamSession[]) {
+        if (!item || !item.id || !item.examId) continue;
+        if (isUntouchedDemoSession(item)) continue;
+        const existing = map.get(item.id);
+        if (!existing || isSessionBetterOrNewer(item, existing)) {
+          map.set(item.id, item);
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+  return Array.from(map.values());
+}
+
+function saveLocalDeviceSessionsBackup(sessionsList: ExamSession[]) {
+  try {
+    const existing = readLocalDeviceSessions();
+    const map = new Map<string, ExamSession>();
+    for (const s of existing) {
+      map.set(s.id, s);
+    }
+    for (const s of sessionsList) {
+      if (!s || !s.id || isUntouchedDemoSession(s)) continue;
+      const prev = map.get(s.id);
+      if (!prev || isSessionBetterOrNewer(s, prev)) {
+        map.set(s.id, s);
+      }
+    }
+    localStorage.setItem(
+      STORAGE_KEYS.DEVICE_SESSIONS_BACKUP,
+      JSON.stringify(Array.from(map.values()))
+    );
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
 export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     try {
@@ -251,7 +341,20 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [classes, setClasses] = useState<ClassRoom[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CLASSES);
-      return saved ? JSON.parse(saved) : INITIAL_CLASSES;
+      if (!saved) return INITIAL_CLASSES;
+      const parsed = JSON.parse(saved) as ClassRoom[];
+      for (const seedCls of INITIAL_CLASSES) {
+        if (
+          !parsed.some(
+            (c) =>
+              c.id === seedCls.id ||
+              c.namaKelas.toLowerCase() === seedCls.namaKelas.toLowerCase()
+          )
+        ) {
+          parsed.push(seedCls);
+        }
+      }
+      return parsed;
     } catch {
       return INITIAL_CLASSES;
     }
@@ -290,18 +393,16 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       });
 
-      // Ensure seed guru & proktor accounts exist if upgrading from earlier localStorage state
-      for (const seedStaff of INITIAL_USERS.filter(
-        (u) => u.role === 'guru' || u.role === 'proktor'
-      )) {
+      // Ensure seed guru, proktor, and sample Kelas X/XI student accounts exist if upgrading from earlier localStorage state
+      for (const seedAcc of INITIAL_USERS) {
         if (
           !loaded.some(
             (existing) =>
-              existing.id === seedStaff.id ||
-              existing.username.toLowerCase() === seedStaff.username.toLowerCase()
+              existing.id === seedAcc.id ||
+              existing.username.toLowerCase() === seedAcc.username.toLowerCase()
           )
         ) {
-          loaded.push(seedStaff);
+          loaded.push(seedAcc);
         }
       }
 
@@ -316,7 +417,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem(STORAGE_KEYS.EXAMS);
       if (!saved) return INITIAL_EXAMS;
       const parsed = JSON.parse(saved) as ExamPackage[];
-      return parsed.map((ex) => {
+      const mapped: ExamPackage[] = parsed.map((ex) => {
         const seedMatch = INITIAL_EXAMS.find(
           (se) => se.id === ex.id || se.code === ex.code
         );
@@ -327,6 +428,16 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           endTime: ex.endTime || seedMatch?.endTime || '09:00',
         };
       });
+      for (const seedEx of INITIAL_EXAMS) {
+        if (
+          !mapped.some(
+            (ex) => ex.id === seedEx.id || ex.code.toLowerCase() === seedEx.code.toLowerCase()
+          )
+        ) {
+          mapped.push(seedEx);
+        }
+      }
+      return mapped;
     } catch {
       return INITIAL_EXAMS;
     }
@@ -335,7 +446,14 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [questions, setQuestions] = useState<Question[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.QUESTIONS);
-      return saved ? JSON.parse(saved) : INITIAL_QUESTIONS;
+      if (!saved) return INITIAL_QUESTIONS;
+      const parsed = JSON.parse(saved) as Question[];
+      for (const seedQ of INITIAL_QUESTIONS) {
+        if (!parsed.some((q) => q.id === seedQ.id)) {
+          parsed.push(seedQ);
+        }
+      }
+      return parsed;
     } catch {
       return INITIAL_QUESTIONS;
     }
@@ -344,11 +462,35 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [sessions, setSessions] = useState<ExamSession[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SESSIONS);
-      return saved ? JSON.parse(saved) : INITIAL_SESSIONS;
+      const initialList: ExamSession[] = saved ? JSON.parse(saved) : INITIAL_SESSIONS;
+      const deviceBackup = readLocalDeviceSessions();
+      if (deviceBackup.length > 0) {
+        const mergedMap = new Map<string, ExamSession>();
+        for (const s of initialList) mergedMap.set(s.id, s);
+        for (const ds of deviceBackup) {
+          const ex = mergedMap.get(ds.id);
+          if (!ex || isSessionBetterOrNewer(ds, ex)) {
+            mergedMap.set(ds.id, ds);
+          }
+        }
+        return Array.from(mergedMap.values());
+      }
+      return initialList;
     } catch {
       return INITIAL_SESSIONS;
     }
   });
+
+  const [autoSyncDeviceScores, setAutoSyncDeviceScoresState] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.AUTO_SYNC_DEVICE_SCORES);
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [unsyncedDeviceSessionIds, setUnsyncedDeviceSessionIds] = useState<string[]>([]);
+  const [isSyncingDeviceScores, setIsSyncingDeviceScores] = useState<boolean>(false);
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
@@ -420,7 +562,197 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Supabase Initial Check & Fetch
+  const setAutoSyncDeviceScores = useCallback(
+    (enabled: boolean) => {
+      setAutoSyncDeviceScoresState(enabled);
+      try {
+        localStorage.setItem(STORAGE_KEYS.AUTO_SYNC_DEVICE_SCORES, String(enabled));
+      } catch {
+        // ignore
+      }
+      showToast(
+        enabled
+          ? 'Sinkronisasi Nilai Otomatis Diaktifkan'
+          : 'Mode Sinkronisasi Manual Diaktifkan',
+        enabled
+          ? 'Data nilai yang tersimpan pada perangkat siswa akan langsung dikirim ke server (v_rekap_nilai & students) secara otomatis.'
+          : 'Nilai tersimpan aman di perangkat dan dapat dikirim kapan saja menggunakan tombol Sinkronkan Nilai.',
+        'info'
+      );
+    },
+    [showToast]
+  );
+
+  // Daftar sesi ujian riil yang tersimpan di perangkat ini
+  const deviceSavedSessions = React.useMemo(() => {
+    const backup = readLocalDeviceSessions();
+    const map = new Map<string, ExamSession>();
+    for (const b of backup) map.set(b.id, b);
+    for (const s of sessions) {
+      if (!isUntouchedDemoSession(s)) {
+        const prev = map.get(s.id);
+        if (!prev || isSessionBetterOrNewer(s, prev)) {
+          map.set(s.id, s);
+        }
+      }
+    }
+    return Array.from(map.values()).map((s) => {
+      const { session: integrated } = integrateSessionWithStudents(s, users);
+      return integrated;
+    });
+  }, [sessions, users]);
+
+  // Sinkronisasi manual / langsung data nilai dari perangkat siswa ke Supabase (exam_sessions & v_rekap_nilai)
+  const syncDeviceSessionsToServer = useCallback(
+    async (
+      targetSessionId?: string
+    ): Promise<{ ok: boolean; syncedCount: number; message: string }> => {
+      const candidates = targetSessionId
+        ? deviceSavedSessions.filter((s) => s.id === targetSessionId)
+        : deviceSavedSessions.length > 0
+        ? deviceSavedSessions
+        : sessions.filter((s) => !isUntouchedDemoSession(s));
+
+      // Recalculate metrics & integrate with students before pushing
+      const prepared: ExamSession[] = candidates.map((s) => {
+        const { session: integrated } = integrateSessionWithStudents(s, users);
+        const exQuestions = questions
+          .filter((q) => q.examId === integrated.examId)
+          .sort((a, b) => a.number - b.number);
+        const hasAnswers = Object.keys(integrated.answers || {}).length > 0;
+        if (exQuestions.length > 0 && hasAnswers) {
+          const metrics = calculateSessionMetrics(exQuestions, integrated.answers);
+          return {
+            ...integrated,
+            ...metrics,
+          };
+        }
+        return integrated;
+      });
+
+      if (prepared.length === 0) {
+        const msg = 'Tidak ada data sesi ujian baru di perangkat ini yang perlu dikirim.';
+        showToast('Data Nilai Sudah Sinkron', msg, 'info');
+        return { ok: true, syncedCount: 0, message: msg };
+      }
+
+      // Update local state first with reconciled student data & recalculated scores
+      setSessions((prev) => {
+        const map = new Map<string, ExamSession>();
+        for (const item of prev) map.set(item.id, item);
+        for (const p of prepared) map.set(p.id, p);
+        return Array.from(map.values());
+      });
+      saveLocalDeviceSessionsBackup(prepared);
+
+      if (!isSupabaseConfigured()) {
+        const msg = `${prepared.length} hasil ujian telah diamankan dan diintegrasikan dengan data siswa pada perangkat ini.`;
+        showToast('Tersimpan di Perangkat', msg, 'success');
+        return { ok: true, syncedCount: prepared.length, message: msg };
+      }
+
+      setIsSyncingDeviceScores(true);
+      const batchRes = await supabaseService.upsertSessionsBatch(prepared, users);
+      setIsSyncingDeviceScores(false);
+
+      if (batchRes.ok) {
+        const syncedIds = new Set(batchRes.syncedSessions.map((s) => s.id));
+        setUnsyncedDeviceSessionIds((prev) => prev.filter((id) => !syncedIds.has(id)));
+        setSessions((prev) => {
+          const map = new Map<string, ExamSession>();
+          for (const item of prev) map.set(item.id, item);
+          for (const synced of batchRes.syncedSessions) {
+            map.set(synced.id, synced);
+          }
+          return Array.from(map.values());
+        });
+        setLastSyncedAt(new Date().toISOString());
+        const msg = `${batchRes.syncedSessions.length} nilai hasil ujian siswa dari perangkat ini berhasil masuk ke tabel exam_sessions & v_rekap_nilai (terintegrasi tabel students).`;
+        showToast('Nilai Berhasil Masuk ke Server', msg, 'success');
+        return {
+          ok: true,
+          syncedCount: batchRes.syncedSessions.length,
+          message: msg,
+        };
+      }
+
+      const errMsg =
+        batchRes.error ||
+        'Gagal mengirim sebagian nilai ke server. Data tetap tersimpan aman di perangkat siswa.';
+      showToast('Gagal Sinkronisasi Server', errMsg, 'warning');
+      return { ok: false, syncedCount: 0, message: errMsg };
+    },
+    [deviceSavedSessions, sessions, users, questions, showToast]
+  );
+
+  const importDeviceSessionsBackup = useCallback(
+    async (
+      importedSessions: ExamSession[]
+    ): Promise<{ ok: boolean; importedCount: number; message: string }> => {
+      if (!Array.isArray(importedSessions) || importedSessions.length === 0) {
+        return {
+          ok: false,
+          importedCount: 0,
+          message: 'Berkas cadangan tidak berisi data sesi nilai ujian yang valid.',
+        };
+      }
+
+      const validSessions: ExamSession[] = importedSessions
+        .filter((s) => s && s.id && s.examId && (s.studentId || s.studentUsername))
+        .map((s) => {
+          const { session: integrated } = integrateSessionWithStudents(s, users);
+          const exQuestions = questions
+            .filter((q) => q.examId === integrated.examId)
+            .sort((a, b) => a.number - b.number);
+          const hasAnswers = Object.keys(integrated.answers || {}).length > 0;
+          if (exQuestions.length > 0 && hasAnswers && integrated.score === 0) {
+            const metrics = calculateSessionMetrics(exQuestions, integrated.answers);
+            return { ...integrated, ...metrics };
+          }
+          return integrated;
+        });
+
+      if (validSessions.length === 0) {
+        return {
+          ok: false,
+          importedCount: 0,
+          message: 'Tidak ditemukan format sesi nilai ujian yang valid di dalam berkas.',
+        };
+      }
+
+      setSessions((prev) => {
+        const map = new Map<string, ExamSession>();
+        for (const item of prev) map.set(item.id, item);
+        for (const vs of validSessions) {
+          const existing = map.get(vs.id);
+          if (!existing || isSessionBetterOrNewer(vs, existing)) {
+            map.set(vs.id, vs);
+          }
+        }
+        return Array.from(map.values());
+      });
+      saveLocalDeviceSessionsBackup(validSessions);
+
+      if (isSupabaseConfigured()) {
+        setIsSyncingDeviceScores(true);
+        const batchRes = await supabaseService.upsertSessionsBatch(validSessions, users);
+        setIsSyncingDeviceScores(false);
+        if (batchRes.ok) {
+          setLastSyncedAt(new Date().toISOString());
+          const msg = `${batchRes.syncedSessions.length} nilai ujian siswa berhasil dipulihkan dan langsung masuk ke tabel exam_sessions & v_rekap_nilai.`;
+          showToast('Pemulihan Nilai Siswa Berhasil', msg, 'success');
+          return { ok: true, importedCount: batchRes.syncedSessions.length, message: msg };
+        }
+      }
+
+      const msg = `${validSessions.length} data nilai siswa berhasil diimpor dan diintegrasikan dengan tabel students.`;
+      showToast('Impor Data Nilai Berhasil', msg, 'success');
+      return { ok: true, importedCount: validSessions.length, message: msg };
+    },
+    [users, questions, showToast]
+  );
+
+  // Supabase Initial Check & Fetch (dengan pelestarian & auto-sync data nilai pada device siswa)
   const refreshFromSupabase = useCallback(async () => {
     if (!isSupabaseConfigured()) {
       setSupabaseState('unconfigured');
@@ -429,6 +761,9 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
       return;
     }
+
+    // Baca seluruh sesi ujian yang tersimpan pada perangkat ini sebelum fetch agar tidak pernah tertimpa
+    const localDeviceList = readLocalDeviceSessions();
 
     setIsSyncingSupabase(true);
     setSupabaseState('checking');
@@ -443,7 +778,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSupabaseMessage(conn.message);
 
     if (conn.state === 'connected') {
-      // If any new table (e.g. app_settings, students) or column is missing, attempt automatic creation via RPC
+      // If any new table (e.g. app_settings, students, v_rekap_nilai) or column is missing, attempt automatic creation via RPC
       if (!healthCheck.allReady) {
         const autoRes = await supabaseService.autoCreateTablesInDatabase();
         setTableHealth(autoRes.health.tables);
@@ -461,25 +796,153 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           res.data.exams.length === 0;
 
         if (isDbEmpty) {
-          // Automatically seed initial data into Supabase when tables are freshly created
+          // Automatically seed initial data + any local device sessions into Supabase
+          const seedPlusLocal = [...INITIAL_SESSIONS];
+          for (const ls of localDeviceList) {
+            const idx = seedPlusLocal.findIndex((s) => s.id === ls.id);
+            if (idx >= 0) seedPlusLocal[idx] = ls;
+            else seedPlusLocal.unshift(ls);
+          }
           await supabaseService.syncAllToSupabase({
             appSettings: INITIAL_APP_SETTINGS,
             classes: INITIAL_CLASSES,
             users: INITIAL_USERS,
             exams: INITIAL_EXAMS,
             questions: INITIAL_QUESTIONS,
-            sessions: INITIAL_SESSIONS,
+            sessions: seedPlusLocal,
           });
+          setSessions(seedPlusLocal);
           const updatedHealth = await supabaseService.checkAllTablesHealth();
           setTableHealth(updatedHealth.tables);
           setAllTablesReady(updatedHealth.allReady);
           setLastSyncedAt(new Date().toISOString());
         } else {
+          const remoteUsers = res.data.users;
+          const remoteExams = res.data.exams;
+          const remoteQuestions = res.data.questions;
+          const remoteSessions = res.data.sessions;
+
           setClasses(res.data.classes);
-          setUsers(res.data.users);
-          setExams(res.data.exams);
-          setQuestions(res.data.questions);
-          setSessions(res.data.sessions);
+          setUsers(remoteUsers);
+          setExams(remoteExams);
+          setQuestions(remoteQuestions);
+
+          // Sinkronkan currentUser (jika siswa sedang login di perangkat ini) agar ID-nya selaras dengan public.students
+          setCurrentUser((prevUser) => {
+            if (!prevUser || prevUser.role !== 'siswa') return prevUser;
+            const matchedStu = findMatchingStudentForSession(
+              {
+                studentId: prevUser.id,
+                studentUsername: prevUser.username,
+                studentNomorPeserta: prevUser.nomorPeserta,
+                studentName: prevUser.name,
+                studentKelas: prevUser.kelas,
+              },
+              remoteUsers
+            );
+            return matchedStu ? { ...prevUser, ...matchedStu, role: 'siswa' } : prevUser;
+          });
+
+          // Gabungkan sesi dari server dengan sesi yang tersimpan di perangkat siswa
+          const mergedSessionMap = new Map<string, ExamSession>();
+          for (const rs of remoteSessions) {
+            const { session: integratedRemote } = integrateSessionWithStudents(
+              rs,
+              remoteUsers
+            );
+            mergedSessionMap.set(integratedRemote.id, integratedRemote);
+          }
+
+          const pendingDeviceToPush: ExamSession[] = [];
+
+          for (const rawLocal of localDeviceList) {
+            const { session: integratedLocal } = integrateSessionWithStudents(
+              rawLocal,
+              remoteUsers
+            );
+            const exQuestions = remoteQuestions
+              .filter((q) => q.examId === integratedLocal.examId)
+              .sort((a, b) => a.number - b.number);
+            const hasAns = Object.keys(integratedLocal.answers || {}).length > 0;
+            const reconciledLocal: ExamSession =
+              exQuestions.length > 0 &&
+              hasAns &&
+              (integratedLocal.score === 0 || integratedLocal.totalQuestions === 0)
+                ? {
+                    ...integratedLocal,
+                    ...calculateSessionMetrics(exQuestions, integratedLocal.answers),
+                  }
+                : integratedLocal;
+
+            // Cek apakah sesi ini sudah ada di server (berdasarkan ID sesi atau kombinasi examId + studentId/username)
+            const existingById = mergedSessionMap.get(reconciledLocal.id);
+            const existingByStudentExam =
+              existingById ||
+              Array.from(mergedSessionMap.values()).find(
+                (rs) =>
+                  rs.examId === reconciledLocal.examId &&
+                  (rs.studentId === reconciledLocal.studentId ||
+                    (rs.studentUsername &&
+                      reconciledLocal.studentUsername &&
+                      rs.studentUsername.toLowerCase() ===
+                        reconciledLocal.studentUsername.toLowerCase()))
+              );
+
+            if (!existingByStudentExam) {
+              // Sesi dari perangkat siswa belum masuk ke database server sama sekali!
+              mergedSessionMap.set(reconciledLocal.id, reconciledLocal);
+              pendingDeviceToPush.push(reconciledLocal);
+            } else if (isSessionBetterOrNewer(reconciledLocal, existingByStudentExam)) {
+              // Sesi pada perangkat siswa lebih baru/lengkap (misal sudah selesai/memiliki jawaban lebih banyak)
+              const unifiedSession: ExamSession = {
+                ...reconciledLocal,
+                id: existingByStudentExam.id,
+              };
+              mergedSessionMap.set(unifiedSession.id, unifiedSession);
+              pendingDeviceToPush.push(unifiedSession);
+            }
+          }
+
+          const finalSessionsList = Array.from(mergedSessionMap.values());
+          setSessions(finalSessionsList);
+          saveLocalDeviceSessionsBackup(finalSessionsList);
+
+          // Jika ada nilai dari perangkat siswa yang belum masuk ke database server:
+          if (pendingDeviceToPush.length > 0) {
+            const shouldAutoSync =
+              localStorage.getItem(STORAGE_KEYS.AUTO_SYNC_DEVICE_SCORES) !== 'false';
+            if (shouldAutoSync) {
+              setIsSyncingDeviceScores(true);
+              const pushRes = await supabaseService.upsertSessionsBatch(
+                pendingDeviceToPush,
+                remoteUsers
+              );
+              setIsSyncingDeviceScores(false);
+              if (pushRes.ok) {
+                setUnsyncedDeviceSessionIds([]);
+                setSessions((prev) => {
+                  const map = new Map<string, ExamSession>();
+                  for (const item of prev) map.set(item.id, item);
+                  for (const synced of pushRes.syncedSessions) {
+                    map.set(synced.id, synced);
+                  }
+                  return Array.from(map.values());
+                });
+                showToast(
+                  'Nilai Perangkat Otomatis Masuk',
+                  `${pushRes.syncedSessions.length} hasil ujian yang tersimpan pada perangkat ini langsung disinkronkan ke tabel students & v_rekap_nilai.`,
+                  'success'
+                );
+              } else {
+                setUnsyncedDeviceSessionIds(pendingDeviceToPush.map((s) => s.id));
+              }
+            } else {
+              setUnsyncedDeviceSessionIds(pendingDeviceToPush.map((s) => s.id));
+            }
+          } else {
+            setUnsyncedDeviceSessionIds([]);
+          }
+
           setLastSyncedAt(new Date().toISOString());
         }
       }
@@ -502,7 +965,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
     setIsSyncingSupabase(false);
-  }, []);
+  }, [showToast]);
 
   const checkAndAutoCreateTables = useCallback(async () => {
     if (!isSupabaseConfigured()) {
@@ -999,6 +1462,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
+      saveLocalDeviceSessionsBackup(sessions);
     } catch (e) {
       console.error(e);
     }
@@ -1337,6 +1801,20 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: false, message: 'Sesi ujian ini sedang tidak aktif atau telah ditutup.' };
     }
 
+    // Validasi akses angkatan & kelas: pastikan soal ujian angkatan Kelas X/XI/XII hanya dapat diakses oleh siswa dari angkatan/kelas tersebut
+    if (currentUser.role === 'siswa' && !canStudentAccessExam(currentUser, exam, classes)) {
+      const studentTingkat = extractTingkatFromText(currentUser.kelas, classes);
+      const examTingkat = extractTingkatFromText(exam.kelasTarget, classes);
+      return {
+        ok: false,
+        message: `Akses Ditolak: Paket ujian "${exam.title}" dikhususkan untuk ${exam.kelasTarget}${
+          examTingkat ? ` (Angkatan Kelas ${examTingkat})` : ''
+        }. Akun Anda terdaftar pada kelas ${currentUser.kelas}${
+          studentTingkat ? ` (Angkatan Kelas ${studentTingkat})` : ''
+        }.`,
+      };
+    }
+
     const examQuestions = getQuestionsByExam(examId);
     if (examQuestions.length === 0) {
       return {
@@ -1346,10 +1824,22 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const existingSession = sessions.find(
-      (s) => s.examId === examId && s.studentId === currentUser.id
+      (s) =>
+        s.examId === examId &&
+        (s.studentId === currentUser.id ||
+          (s.studentUsername &&
+            currentUser.username &&
+            s.studentUsername.toLowerCase() === currentUser.username.toLowerCase()) ||
+          (s.studentNomorPeserta &&
+            currentUser.nomorPeserta &&
+            s.studentNomorPeserta.toLowerCase() ===
+              currentUser.nomorPeserta.toLowerCase()))
     );
 
-    if (existingSession && existingSession.status === 'completed') {
+    if (
+      existingSession &&
+      (existingSession.status === 'completed' || existingSession.status === 'timed_out')
+    ) {
       return {
         ok: false,
         message: 'Anda telah menyelesaikan paket ujian ini.',
@@ -1367,15 +1857,27 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: true, session: existingSession };
     }
 
+    const matchedStudent =
+      findMatchingStudentForSession(
+        {
+          studentId: currentUser.id,
+          studentUsername: currentUser.username,
+          studentNomorPeserta: currentUser.nomorPeserta,
+          studentName: currentUser.name,
+          studentKelas: currentUser.kelas,
+        },
+        users
+      ) || currentUser;
+
     const metrics = calculateSessionMetrics(examQuestions, {});
     const newSession: ExamSession = {
       id: `ses-${Date.now()}`,
       examId: exam.id,
-      studentId: currentUser.id,
-      studentName: currentUser.name,
-      studentUsername: currentUser.username,
-      studentKelas: currentUser.kelas,
-      studentNomorPeserta: currentUser.nomorPeserta,
+      studentId: matchedStudent.id,
+      studentName: matchedStudent.name,
+      studentUsername: matchedStudent.username,
+      studentKelas: matchedStudent.kelas,
+      studentNomorPeserta: matchedStudent.nomorPeserta,
       startedAt: new Date().toISOString(),
       status: 'in_progress',
       answers: {},
@@ -1386,7 +1888,8 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setSessions((prev) => [newSession, ...prev]);
-    void supabaseService.upsertSession(newSession);
+    saveLocalDeviceSessionsBackup([newSession]);
+    void supabaseService.upsertSession(newSession, matchedStudent);
     return { ok: true, session: newSession };
   };
 
@@ -1402,13 +1905,17 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         const examQuestions = getQuestionsByExam(s.examId);
         const metrics = calculateSessionMetrics(examQuestions, updatedAnswers);
-        const updated: ExamSession = {
-          ...s,
-          answers: updatedAnswers,
-          ...metrics,
-        };
-        void supabaseService.upsertSession(updated);
-        return updated;
+        const { session: integrated, matchedStudent } = integrateSessionWithStudents(
+          {
+            ...s,
+            answers: updatedAnswers,
+            ...metrics,
+          },
+          users
+        );
+        saveLocalDeviceSessionsBackup([integrated]);
+        void supabaseService.upsertSession(integrated, matchedStudent || currentUser || undefined);
+        return integrated;
       })
     );
   };
@@ -1428,7 +1935,8 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...s,
           doubtFlags: nextFlags,
         };
-        void supabaseService.upsertSession(updated);
+        saveLocalDeviceSessionsBackup([updated]);
+        void supabaseService.upsertSession(updated, currentUser || undefined);
         return updated;
       })
     );
@@ -1452,7 +1960,8 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...s,
           tabSwitchCount: s.tabSwitchCount + 1,
         };
-        void supabaseService.upsertSession(updated);
+        saveLocalDeviceSessionsBackup([updated]);
+        void supabaseService.upsertSession(updated, currentUser || undefined);
         return updated;
       })
     );
@@ -1463,22 +1972,43 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!target) return undefined;
     const examQuestions = getQuestionsByExam(target.examId);
     const metrics = calculateSessionMetrics(examQuestions, target.answers);
-    const finishedSession: ExamSession = {
-      ...target,
-      status: timedOut ? 'timed_out' : 'completed',
-      submittedAt: new Date().toISOString(),
-      doubtFlags: {},
-      ...metrics,
-    };
+    const { session: finishedSession, matchedStudent } = integrateSessionWithStudents(
+      {
+        ...target,
+        status: timedOut ? 'timed_out' : 'completed',
+        submittedAt: new Date().toISOString(),
+        doubtFlags: {},
+        ...metrics,
+      },
+      users
+    );
     setSessions((prev) =>
       prev.map((s) => (s.id === sessionId ? finishedSession : s))
     );
-    void supabaseService.upsertSession(finishedSession);
+    saveLocalDeviceSessionsBackup([finishedSession]);
+    void supabaseService
+      .upsertSession(finishedSession, matchedStudent || currentUser || undefined)
+      .then((res) => {
+        if (res.ok) {
+          setUnsyncedDeviceSessionIds((prev) =>
+            prev.filter((id) => id !== finishedSession.id)
+          );
+          if (res.session.studentId !== finishedSession.studentId) {
+            setSessions((prev) =>
+              prev.map((s) => (s.id === finishedSession.id ? res.session : s))
+            );
+          }
+        } else {
+          setUnsyncedDeviceSessionIds((prev) =>
+            Array.from(new Set([...prev, finishedSession.id]))
+          );
+        }
+      });
     showToast(
-      timedOut ? 'Waktu Ujian Habis!' : 'Lembar Jawaban Terkirim',
+      timedOut ? 'Waktu Ujian Habis!' : 'Lembar Jawaban & Nilai Terkirim',
       timedOut
-        ? 'Jawaban Anda telah dikumpulkan secara otomatis oleh sistem.'
-        : 'Terima kasih, jawaban ujian Anda berhasil direkam di server.',
+        ? 'Jawaban Anda telah dikumpulkan dan nilai langsung diintegrasikan ke tabel students & v_rekap_nilai.'
+        : 'Terima kasih, nilai ujian Anda berhasil disimpan di perangkat & langsung dikirim ke tabel v_rekap_nilai.',
       timedOut ? 'warning' : 'success'
     );
     return finishedSession;
@@ -1486,6 +2016,17 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetStudentSession = (sessionId: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    try {
+      const existingBackup = readLocalDeviceSessions().filter(
+        (s) => s.id !== sessionId
+      );
+      localStorage.setItem(
+        STORAGE_KEYS.DEVICE_SESSIONS_BACKUP,
+        JSON.stringify(existingBackup)
+      );
+    } catch {
+      // ignore
+    }
     void supabaseService.deleteSession(sessionId);
     showToast(
       'Sesi Peserta Direset',
@@ -1603,6 +2144,12 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const exam = exams.find((e) => e.id === data.examId);
     if (!student || !exam) {
       return { ok: false, message: 'Data siswa atau paket ujian tidak ditemukan.' };
+    }
+    if (!canStudentAccessExam(student, exam, classes)) {
+      return {
+        ok: false,
+        message: `Siswa ${student.name} (${student.kelas}) tidak sesuai dengan target angkatan/kelas ujian "${exam.kelasTarget}".`,
+      };
     }
     const existing = sessions.find(
       (s) => s.examId === data.examId && s.studentId === data.studentId
@@ -1931,6 +2478,13 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastRealtimeEvent,
         realtimeLogs,
         sendRealtimePing,
+        autoSyncDeviceScores,
+        setAutoSyncDeviceScores,
+        deviceSavedSessions,
+        unsyncedDeviceSessionIds,
+        isSyncingDeviceScores,
+        syncDeviceSessionsToServer,
+        importDeviceSessionsBackup,
         generateNextStudentNomorPeserta,
         login,
         logout,
