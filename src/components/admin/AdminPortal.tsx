@@ -25,6 +25,7 @@ import {
   Menu,
   Radio,
   Zap,
+  BarChart3,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import {
@@ -40,9 +41,11 @@ import { GradeReportTab } from './GradeReportTab';
 import { AppSettingsTab } from './AppSettingsTab';
 import { DatabaseSupabaseTab } from './DatabaseSupabaseTab';
 import { QuestionBankTab } from './QuestionBankTab';
+import { ExamVisualSummary } from './ExamVisualSummary';
 
 type AdminTab =
   | 'dashboard'
+  | 'analytics'
   | 'classes'
   | 'students'
   | 'users'
@@ -268,6 +271,27 @@ export const AdminPortal: React.FC = () => {
             >
               <LayoutDashboard className="w-4 h-4 shrink-0" />
               <span>Ringkasan & Token</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('analytics');
+                setMobileNavOpen(false);
+              }}
+              className={`px-3.5 py-2.5 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition-colors whitespace-nowrap cursor-pointer ${
+                activeTab === 'analytics'
+                  ? 'bg-blue-50 text-[#1D4ED8] border border-blue-200/80'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <span className="flex items-center gap-3">
+                <BarChart3 className="w-4 h-4 shrink-0" />
+                <span>Statistik & Grafik</span>
+              </span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold">
+                Visual
+              </span>
             </button>
 
             <button
@@ -524,6 +548,8 @@ export const AdminPortal: React.FC = () => {
             <h1 className="text-sm sm:text-lg font-bold text-slate-900 truncate">
               {activeTab === 'dashboard' &&
                 'Ringkasan Eksekutif & Kontrol Token CBT'}
+              {activeTab === 'analytics' &&
+                'Visualisasi Data Statistik & Grafik Evaluasi CBT'}
               {activeTab === 'classes' &&
                 'Manajemen Data Kelas & Rombongan Belajar'}
               {activeTab === 'students' &&
@@ -627,6 +653,14 @@ export const AdminPortal: React.FC = () => {
           {/* ==================== TAB: CETAK LAPORAN NILAI ==================== */}
           {activeTab === 'grade_report' && <GradeReportTab />}
 
+          {/* ==================== TAB: ANALISIS & VISUALISASI DATA ==================== */}
+          {activeTab === 'analytics' && (
+            <ExamVisualSummary
+              onNavigateToGrades={(examId) => setActiveTab('grades')}
+              onNavigateToExams={() => setActiveTab('exams')}
+            />
+          )}
+
           {/* ==================== TAB: PENGATURAN APLIKASI ==================== */}
           {activeTab === 'app_settings' && <AppSettingsTab />}
 
@@ -706,6 +740,12 @@ export const AdminPortal: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Visual Data Summary & Interactive Charts */}
+              <ExamVisualSummary
+                onNavigateToGrades={(examId) => setActiveTab('grades')}
+                onNavigateToExams={() => setActiveTab('exams')}
+              />
 
               {/* Token Control Center & Recent Sessions Split */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
