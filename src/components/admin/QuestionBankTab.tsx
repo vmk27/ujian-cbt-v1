@@ -109,6 +109,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
     bulkAddQuestions,
     updateQuestion,
     deleteQuestion,
+    updateExam,
     showToast,
   } = useCBT();
 
@@ -1126,16 +1127,57 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
           </div>
         </div>
 
-        {/* Supabase Storage Auto-Folder Status Bar */}
-        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-          <div className="flex flex-wrap items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>
-              Folder Otomatis Bucket Supabase (<strong>app-file</strong>):
-            </span>
-            <code className="font-mono text-[11px] bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">
-              app-file/{activeModalFolderPath}/
-            </code>
+        {/* Supabase Storage Auto-Folder & Pembahasan Soal Status Bar */}
+        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <FolderOpen className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                Folder Bucket Supabase (<strong>app-file</strong>):
+              </span>
+              <code className="font-mono text-[11px] bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">
+                app-file/{activeModalFolderPath}/
+              </code>
+            </div>
+
+            {/* Quick Toggle Pengaturan Pembahasan Soal */}
+            {activeExam && (
+              <div className="flex items-center gap-2 pl-2 sm:border-l sm:border-slate-200">
+                <span className="text-slate-500 font-medium">Akses Pembahasan Siswa:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !activeExam.showExplanationAfterSubmit;
+                    updateExam(activeExam.id, { showExplanationAfterSubmit: next });
+                    showToast(
+                      next ? 'Pembahasan Soal Diaktifkan' : 'Pembahasan Soal Dinonaktifkan',
+                      `Akses kunci & pembahasan paket [${activeExam.code}] berhasil ${
+                        next ? 'dibuka untuk siswa' : 'ditutup/dikunci'
+                      }.`,
+                      next ? 'success' : 'info'
+                    );
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                    activeExam.showExplanationAfterSubmit
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                      : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                  }`}
+                  title="Klik untuk mengubah akses pembahasan soal setelah siswa mengakhiri ujian"
+                >
+                  {activeExam.showExplanationAfterSubmit ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Pembahasan: AKTIF (Buka)</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      <span>Pembahasan: NONAKTIF (Kunci)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-slate-500 font-mono text-[11px] tabular-nums">

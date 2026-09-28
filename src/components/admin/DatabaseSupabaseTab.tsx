@@ -15,6 +15,12 @@ import {
   Wrench,
   Settings2,
   XCircle,
+  Radio,
+  Activity,
+  Zap,
+  Wifi,
+  WifiOff,
+  BellRing,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import {
@@ -60,9 +66,15 @@ export const DatabaseSupabaseTab: React.FC = () => {
     refreshFromSupabase,
     pushAllToSupabase,
     checkAndAutoCreateTables,
+    realtimeStatus,
+    realtimeEventsCount,
+    lastRealtimeEvent,
+    realtimeLogs,
+    sendRealtimePing,
     showToast,
   } = useCBT();
 
+  const [isPingingRealtime, setIsPingingRealtime] = useState<boolean>(false);
   const [selectedTableIndex, setSelectedTableIndex] = useState<number>(0);
   const [sqlViewMode, setSqlViewMode] = useState<'ddl' | 'seed'>('ddl');
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
@@ -156,8 +168,8 @@ export const DatabaseSupabaseTab: React.FC = () => {
       );
     }
 
-    lines.push('', '-- 2B. MANAJEMEN USER & PROFIL (public.users - DENGAN KOLOM PASSWORD)');
-    for (const u of users) {
+    lines.push('', '-- 2B. MANAJEMEN USER KHUSUS APARATUR: ADMIN, GURU, PROKTOR (public.users)');
+    for (const u of users.filter((u) => u.role !== 'siswa')) {
       const r = mapUserToRow(u);
       lines.push(
         `INSERT INTO public.users (id, username, password, name, role, kelas, nomor_peserta, jenis_kelamin, sekolah) VALUES (${escapeSqlLiteral(
@@ -404,6 +416,161 @@ export const DatabaseSupabaseTab: React.FC = () => {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Supabase Realtime Live Sync & Channel Status Panel */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gradient-to-r from-slate-50 via-blue-50/30 to-indigo-50/20">
+          <div className="flex items-start gap-3.5">
+            <div
+              className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                realtimeStatus === 'SUBSCRIBED'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : realtimeStatus === 'CONNECTING'
+                  ? 'bg-amber-500 text-white animate-pulse'
+                  : 'bg-slate-700 text-white'
+              }`}
+            >
+              {realtimeStatus === 'SUBSCRIBED' ? (
+                <Radio className="w-5 h-5 animate-pulse" />
+              ) : realtimeStatus === 'CONNECTING' ? (
+                <Activity className="w-5 h-5 animate-spin" />
+              ) : (
+                <WifiOff className="w-5 h-5" />
+              )}
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Status Koneksi Realtime Supabase (PostgreSQL Changes & Broadcast)
+                </h3>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                    realtimeStatus === 'SUBSCRIBED'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : realtimeStatus === 'CONNECTING'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                      : 'bg-red-100 text-red-800 border border-red-300'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      realtimeStatus === 'SUBSCRIBED'
+                        ? 'bg-emerald-500 animate-ping'
+                        : realtimeStatus === 'CONNECTING'
+                        ? 'bg-amber-500'
+                        : 'bg-red-500'
+                    }`}
+                  />
+                  <span>
+                    {realtimeStatus === 'SUBSCRIBED'
+                      ? 'REALTIME TERHUBUNG (SUBSCRIBED)'
+                      : realtimeStatus === 'CONNECTING'
+                      ? 'MENGHUBUNGKAN REALTIME...'
+                      : realtimeStatus === 'OFFLINE'
+                      ? 'REALTIME OFFLINE'
+                      : `STATUS: ${realtimeStatus}`}
+                  </span>
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1">
+                Mendengarkan event perubahan data (<code className="font-mono text-slate-800 font-bold">postgres_changes</code>) secara dua arah untuk seluruh 7 tabel utama. Data nilai, lembar jawab siswa, paket ujian, butir soal, dan profil otomatis ter-update tanpa reload.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              disabled={isPingingRealtime}
+              onClick={async () => {
+                setIsPingingRealtime(true);
+                await sendRealtimePing();
+                setTimeout(() => setIsPingingRealtime(false), 800);
+              }}
+              className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-xs transition-colors"
+            >
+              <Zap className={`w-3.5 h-3.5 ${isPingingRealtime ? 'animate-bounce' : ''}`} />
+              <span>{isPingingRealtime ? 'Mengirim Ping...' : 'Uji Sinyal Realtime Ping'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Realtime Metrics Summary */}
+        <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-slate-200 bg-white text-xs border-b border-slate-200">
+          <div className="p-3.5">
+            <span className="text-[11px] font-medium text-slate-500 block">Kanal / Channel Supabase</span>
+            <span className="font-mono font-bold text-slate-900 mt-0.5 block truncate">
+              cbt-live-sync (public)
+            </span>
+          </div>
+
+          <div className="p-3.5">
+            <span className="text-[11px] font-medium text-slate-500 block">Total Event Diterima</span>
+            <span className="font-mono font-bold text-emerald-700 text-sm mt-0.5 block tabular-nums">
+              {realtimeEventsCount} Transaksi Live
+            </span>
+          </div>
+
+          <div className="p-3.5">
+            <span className="text-[11px] font-medium text-slate-500 block">Tabel Dipublikasikan</span>
+            <span className="font-bold text-blue-700 mt-0.5 block">
+              7 Tabel (Full Identity)
+            </span>
+          </div>
+
+          <div className="p-3.5">
+            <span className="text-[11px] font-medium text-slate-500 block">Aktivitas Realtime Terakhir</span>
+            <span className="font-mono text-[11px] text-slate-700 mt-0.5 block truncate">
+              {lastRealtimeEvent
+                ? `${new Date(lastRealtimeEvent.timestamp).toLocaleTimeString('id-ID')} · ${lastRealtimeEvent.table}`
+                : 'Belum ada transaksi live'}
+            </span>
+          </div>
+        </div>
+
+        {/* Live Event Stream / Log Preview */}
+        {realtimeLogs.length > 0 && (
+          <div className="p-4 bg-slate-900 text-slate-200 text-xs">
+            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+              <span className="font-mono font-semibold text-emerald-400 flex items-center gap-1.5 text-[11px]">
+                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                Live Realtime Feed (Sinkronisasi Data Dua Arah)
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Menampilkan {Math.min(realtimeLogs.length, 5)} event terbaru
+              </span>
+            </div>
+            <div className="space-y-1.5 font-mono text-[11px]">
+              {realtimeLogs.slice(0, 5).map((log) => (
+                <div
+                  key={log.id}
+                  className="flex flex-wrap items-center gap-2 py-0.5 border-b border-slate-800/50 last:border-none"
+                >
+                  <span className="text-slate-500">
+                    {new Date(log.timestamp).toLocaleTimeString('id-ID')}
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                      log.eventType === 'INSERT'
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                        : log.eventType === 'UPDATE'
+                        ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                        : log.eventType === 'DELETE'
+                        ? 'bg-red-950 text-red-300 border border-red-800'
+                        : 'bg-indigo-950 text-indigo-300 border border-indigo-800'
+                    }`}
+                  >
+                    {log.eventType}
+                  </span>
+                  <span className="text-amber-300 font-semibold">{log.table}</span>
+                  <span className="text-slate-300 truncate">{log.description}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Database & Table Health Check + Auto Provisioning Settings Panel */}

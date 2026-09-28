@@ -32,6 +32,7 @@ export const StudentPortal: React.FC = () => {
     sessions,
     getQuestionsByExam,
     verifyTokenAndStartSession,
+    realtimeStatus,
   } = useCBT();
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -133,7 +134,13 @@ export const StudentPortal: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {realtimeStatus === 'SUBSCRIBED' && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Realtime Sync</span>
+              </span>
+            )}
             <div className="text-right hidden sm:block">
               <div className="text-sm font-bold text-slate-900">{currentUser.name}</div>
               <div className="text-xs font-mono text-slate-500">
@@ -341,6 +348,22 @@ export const StudentPortal: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Status Pembahasan Soal Badge */}
+                    <div className="flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                      <span className="text-slate-500 font-medium">Kunci & Pembahasan:</span>
+                      {exam.showExplanationAfterSubmit ? (
+                        <span className="font-bold text-emerald-700 inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Tersedia Pasca Ujian</span>
+                        </span>
+                      ) : (
+                        <span className="font-bold text-slate-500 inline-flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                          <span>Dinonaktifkan Proktor</span>
+                        </span>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-3 gap-2 pt-1 text-xs text-slate-600">
                       <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/70">
                         <div className="text-[10px] font-semibold uppercase text-slate-400">
@@ -380,10 +403,18 @@ export const StudentPortal: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setReviewSessionId(mySession.id)}
-                        className="px-4 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
+                        className={`px-4 py-2.5 rounded-lg text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+                          exam.showExplanationAfterSubmit
+                            ? 'bg-slate-900 hover:bg-slate-800'
+                            : 'bg-indigo-900 hover:bg-indigo-800'
+                        }`}
                       >
                         <Eye className="w-4 h-4" />
-                        <span>Lihat Nilai & Pembahasan</span>
+                        <span>
+                          {exam.showExplanationAfterSubmit
+                            ? 'Lihat Nilai & Pembahasan'
+                            : 'Lihat Nilai Akhir'}
+                        </span>
                       </button>
                     ) : isInProgress ? (
                       <button
@@ -495,8 +526,17 @@ export const StudentPortal: React.FC = () => {
                               onClick={() => setReviewSessionId(ses.id)}
                               className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer"
                             >
-                              <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-                              <span>Pembahasan</span>
+                              {ex?.showExplanationAfterSubmit ? (
+                                <>
+                                  <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Pembahasan</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                  <span>Detail Nilai</span>
+                                </>
+                              )}
                             </button>
                           </td>
                         </tr>
@@ -818,8 +858,21 @@ export const StudentPortal: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <div className="p-6 text-center text-sm text-slate-500 bg-slate-50 rounded-lg border border-slate-200">
-                  Pembahasan soal dinonaktifkan oleh Proktor untuk paket ujian ini.
+                <div className="p-8 text-center space-y-4 bg-slate-50/80 rounded-xl border border-slate-200">
+                  <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto shadow-2xs">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-base font-bold text-slate-900">
+                      Kunci & Pembahasan Soal Dinonaktifkan
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                      Proktor atau Guru pengampu telah mengunci tampilan rincian butir soal dan kunci pembahasan untuk paket ujian ini. Lembar jawaban Anda telah tersimpan resmi dan nilai akhir Anda di atas telah diverifikasi sistem CBT.
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-200/70 text-slate-700 text-[11px] font-mono font-semibold">
+                    <span>Status Akses: Terkunci oleh Proktor</span>
+                  </div>
                 </div>
               )}
             </div>

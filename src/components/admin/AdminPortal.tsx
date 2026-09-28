@@ -23,6 +23,8 @@ import {
   Settings,
   Calendar,
   Menu,
+  Radio,
+  Zap,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import {
@@ -67,6 +69,9 @@ export const AdminPortal: React.FC = () => {
     deleteExam,
     regenerateExamToken,
     getQuestionsByExam,
+    showToast,
+    realtimeStatus,
+    realtimeEventsCount,
   } = useCBT();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -464,8 +469,19 @@ export const AdminPortal: React.FC = () => {
                 <Database className="w-4 h-4 shrink-0" />
                 <span>Database Supabase</span>
               </span>
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                7 Tabel
+              <span
+                className={`font-mono text-[10px] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 ${
+                  realtimeStatus === 'SUBSCRIBED'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : realtimeStatus === 'CONNECTING'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {realtimeStatus === 'SUBSCRIBED' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                )}
+                <span>{realtimeStatus === 'SUBSCRIBED' ? 'Realtime' : '7 Tabel'}</span>
               </span>
             </button>
           </nav>
@@ -529,9 +545,44 @@ export const AdminPortal: React.FC = () => {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {/* Realtime Supabase Status Pill */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('database')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+                realtimeStatus === 'SUBSCRIBED'
+                  ? 'bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                  : realtimeStatus === 'CONNECTING'
+                  ? 'bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100'
+                  : 'bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200'
+              }`}
+              title={`Status Realtime: ${realtimeStatus}. Klik untuk membuka pengaturan database.`}
+            >
+              {realtimeStatus === 'SUBSCRIBED' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                  <Radio className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Realtime Supabase Aktif</span>
+                  <span className="font-mono text-[10px] bg-emerald-200/80 px-1.5 py-0.2 rounded text-emerald-900 font-bold">
+                    {realtimeEventsCount}
+                  </span>
+                </>
+              ) : realtimeStatus === 'CONNECTING' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-600 animate-spin shrink-0" />
+                  <span>Menghubungkan Realtime...</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                  <span>Realtime Offline</span>
+                </>
+              )}
+            </button>
+
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
               <span className="tabular-nums">
                 {activeSessions.length} Peserta Sedang Ujian
               </span>
@@ -899,6 +950,27 @@ export const AdminPortal: React.FC = () => {
                           </div>
                         </div>
 
+                        {/* Status Pengaturan Pembahasan Soal */}
+                        <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+                          <div className="flex items-center gap-2">
+                            <BookOpen className="w-4 h-4 text-slate-500" />
+                            <span className="font-medium text-slate-700">Pembahasan Soal Siswa:</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {ex.showExplanationAfterSubmit ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Diaktifkan (Bisa Dilihat)</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                <span>Dinonaktifkan (Terkunci)</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-center">
                           <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80">
                             <div className="text-[10px] uppercase text-slate-400 font-semibold">
@@ -936,14 +1008,45 @@ export const AdminPortal: React.FC = () => {
                       </div>
 
                       <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => regenerateExamToken(ex.id)}
-                          className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 hover:text-blue-700 flex items-center gap-1.5 cursor-pointer shrink-0"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                          <span>Perbarui Token</span>
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => regenerateExamToken(ex.id)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 hover:text-blue-700 flex items-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                            <span>Perbarui Token</span>
+                          </button>
+
+                          {/* Quick Toggle Pembahasan Soal */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextState = !ex.showExplanationAfterSubmit;
+                              updateExam(ex.id, { showExplanationAfterSubmit: nextState });
+                              showToast(
+                                nextState ? 'Pembahasan Diaktifkan' : 'Pembahasan Dinonaktifkan',
+                                `Pembahasan untuk paket [${ex.code}] ${ex.title} berhasil di${
+                                  nextState ? 'aktifkan' : 'nonaktifkan'
+                                }.`,
+                                nextState ? 'success' : 'info'
+                              );
+                            }}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors ${
+                              ex.showExplanationAfterSubmit
+                                ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                            }`}
+                            title="Klik untuk mengubah akses pembahasan soal bagi siswa"
+                          >
+                            <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              {ex.showExplanationAfterSubmit
+                                ? 'Matikan Pembahasan'
+                                : 'Buka Pembahasan'}
+                            </span>
+                          </button>
+                        </div>
 
                         <button
                           type="button"
@@ -1235,6 +1338,59 @@ export const AdminPortal: React.FC = () => {
                   }
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
                 />
+              </div>
+
+              {/* Pengaturan Pembahasan Soal (Enable / Disable) */}
+              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-blue-700" />
+                    <span className="font-bold text-sm text-blue-950">
+                      Pengaturan Akses Pembahasan Soal
+                    </span>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                      examForm.showExplanationAfterSubmit
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300'
+                    }`}
+                  >
+                    {examForm.showExplanationAfterSubmit ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Pembahasan Aktif</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                        <span>Pembahasan Dinonaktifkan</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-blue-400 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={examForm.showExplanationAfterSubmit}
+                    onChange={(e) =>
+                      setExamForm({
+                        ...examForm,
+                        showExplanationAfterSubmit: e.target.checked,
+                      })
+                    }
+                    className="mt-0.5 w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div className="text-xs space-y-0.5">
+                    <div className="font-bold text-slate-900">
+                      Izinkan Siswa Melihat Kunci Jawaban & Pembahasan Setelah Ujian Selesai
+                    </div>
+                    <p className="text-slate-500 leading-relaxed">
+                      Bila dicentang (<strong>Aktif</strong>), siswa dapat meninjau analisis butir soal, kunci pilihan ganda/esai, dan uraian pembahasan lengkap. Bila dinonaktifkan (<strong>Nonaktif</strong>), siswa hanya dapat melihat skor akhir dan status kelulusan KKM.
+                    </p>
+                  </div>
+                </label>
               </div>
 
               <div className="pt-3 flex justify-end gap-3 border-t border-slate-200">

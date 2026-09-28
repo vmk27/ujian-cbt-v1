@@ -90,6 +90,23 @@ export interface ExamPackage {
 
 export type SessionStatus = 'in_progress' | 'completed' | 'timed_out';
 
+export type SupabaseRealtimeStatus =
+  | 'SUBSCRIBED'
+  | 'CONNECTING'
+  | 'DISCONNECTED'
+  | 'CHANNEL_ERROR'
+  | 'TIMED_OUT'
+  | 'OFFLINE';
+
+export interface RealtimeLogEntry {
+  id: string;
+  table: string;
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE' | 'SUBSCRIBED' | 'BROADCAST';
+  timestamp: string;
+  description: string;
+  recordId?: string;
+}
+
 export interface ExamSession {
   id: string;
   examId: string;
@@ -113,3 +130,4 @@ export interface ExamSession {
   unansweredCount: number;
   totalQuestions: number;
 }
+

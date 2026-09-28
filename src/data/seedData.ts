@@ -2,11 +2,11 @@ import { AppSettings, ClassRoom, ExamPackage, ExamSession, Question, UserAccount
 
 export const INITIAL_APP_SETTINGS: AppSettings = {
   id: 'default',
-  appName: 'NusantaraCBT',
-  appSubtitle: 'Sistem Evaluasi & Ujian Berbasis Komputer Nasional',
-  schoolName: 'SMA Negeri 1 Nusantara Jakarta',
-  npsn: '20100101',
-  schoolAddress: 'Jl. Pendidikan Nasional No. 10, Menteng, Jakarta Pusat',
+  appName: 'CBT SMANLUB',
+  appSubtitle: 'Sistem Evaluasi & Ujian Berbasis Komputer',
+  schoolName: 'SMA Negeri 1 Lumbung Ciamis',
+  npsn: '20253456',
+  schoolAddress: 'Jl. Raya Lumbung No. 12, Kec. Lumbung, Kab. Ciamis, Jawa Barat',
   academicYear: '2026/2027',
   semester: 'Genap',
   principalName: 'Dr. H. Surya Dharma, M.Pd.',
@@ -14,7 +14,7 @@ export const INITIAL_APP_SETTINGS: AppSettings = {
   examCardTitle: 'KARTU PESERTA PENILAIAN AKHIR TAHUN (CBT)',
   studentNoPrefix: '26-01-0104-',
   defaultKkm: 75,
-  citySignature: 'Jakarta',
+  citySignature: 'Ciamis',
 };
 
 export const INITIAL_CLASSES: ClassRoom[] = [

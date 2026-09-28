@@ -29,7 +29,7 @@ export const ClassManagementTab: React.FC<ClassManagementTabProps> = ({
     addClassRoom,
     updateClassRoom,
     deleteClassRoom,
-    seedClassesToSupabase,
+    pushAllToSupabase,
     showToast,
   } = useCBT();
 
@@ -44,7 +44,7 @@ export const ClassManagementTab: React.FC<ClassManagementTabProps> = ({
 
   const handleSyncClasses = async () => {
     setIsSyncing(true);
-    await seedClassesToSupabase();
+    await pushAllToSupabase();
     setIsSyncing(false);
   };
 

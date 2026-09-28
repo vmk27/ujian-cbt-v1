@@ -26,8 +26,8 @@ export const AppSettingsTab: React.FC = () => {
     e.preventDefault();
     updateAppSettings({
       ...form,
-      appName: form.appName.trim() || 'NusantaraCBT',
-      schoolName: form.schoolName.trim() || 'SMA Negeri 1 Nusantara Jakarta',
+      appName: form.appName.trim() || 'CBT SMANLUB',
+      schoolName: form.schoolName.trim() || 'SMA Negeri 1 Lumbung Ciamis',
       studentNoPrefix: form.studentNoPrefix.trim() || '26-01-0104-',
       defaultKkm: Number(form.defaultKkm) || 75,
     });

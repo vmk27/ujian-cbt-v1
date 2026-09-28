@@ -11,6 +11,7 @@ import {
   Clock,
   ShieldAlert,
   X,
+  BookOpen,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import { ExamSession } from '../../types/cbt';
@@ -50,6 +51,7 @@ export const GradeManagementTab: React.FC = () => {
     resetStudentSession,
     updateSessionScore,
     addManualGradeSession,
+    updateExam,
     showToast,
   } = useCBT();
 
@@ -348,6 +350,42 @@ export const GradeManagementTab: React.FC = () => {
             <option value="REMEDIAL">Remedial (Di Bawah KKM)</option>
             <option value="IN_PROGRESS">Sedang Mengerjakan</option>
           </select>
+
+          {/* Quick Discussion Toggle for Filtered Exam */}
+          {filterExamId !== 'ALL' && (() => {
+            const currentFilteredExam = exams.find((e) => e.id === filterExamId);
+            if (!currentFilteredExam) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextState = !currentFilteredExam.showExplanationAfterSubmit;
+                  updateExam(currentFilteredExam.id, {
+                    showExplanationAfterSubmit: nextState,
+                  });
+                  showToast(
+                    nextState ? 'Pembahasan Soal Diaktifkan' : 'Pembahasan Soal Dinonaktifkan',
+                    `Akses kunci jawaban & pembahasan untuk paket [${currentFilteredExam.code}] berhasil ${
+                      nextState ? 'diaktifkan' : 'dinonaktifkan'
+                    }.`,
+                    nextState ? 'success' : 'info'
+                  );
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer shrink-0 ${
+                  currentFilteredExam.showExplanationAfterSubmit
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                }`}
+                title="Ubah pengaturan apakah siswa dapat melihat pembahasan ujian ini"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>
+                  Pembahasan Siswa:{' '}
+                  {currentFilteredExam.showExplanationAfterSubmit ? 'AKTIF (Bisa Dilihat)' : 'NONAKTIF (Terkunci)'}
+                </span>
+              </button>
+            );
+          })()}
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">

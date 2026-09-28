@@ -123,7 +123,7 @@ export const LoginView: React.FC = () => {
                     Masuk {appSettings.appName}
                   </h2>
                   <p className="text-xs text-slate-500 mt-1">
-                    Masukkan NISN / Username serta Password atau Nomor Peserta Ujian Anda.
+                    Siswa masuk menggunakan NISN dari tabel <strong className="text-slate-700 font-mono">students</strong>. Staf/Guru/Proktor masuk via tabel <strong className="text-slate-700 font-mono">users</strong>.
                   </p>
                 </div>
 
@@ -136,7 +136,7 @@ export const LoginView: React.FC = () => {
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      NISN / Username
+                      NISN / Username / NIP
                     </label>
                     <div className="relative">
                       <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -145,7 +145,7 @@ export const LoginView: React.FC = () => {
                         required
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        placeholder="Masukkan NISN atau Username"
+                        placeholder="Contoh Siswa: 0071234567 | Admin: admin"
                         className="w-full pl-10 pr-4 py-2.5 text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-slate-900"
                       />
                     </div>
@@ -153,7 +153,7 @@ export const LoginView: React.FC = () => {
 
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                      Password / Nomor Peserta CBT
+                      Password / Kredensial CBT
                     </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -162,7 +162,7 @@ export const LoginView: React.FC = () => {
                         required
                         value={accessKey}
                         onChange={(e) => setAccessKey(e.target.value)}
-                        placeholder="Masukkan Password atau Nomor Peserta"
+                        placeholder="Masukkan password akun Anda"
                         className="w-full pl-10 pr-10 py-2.5 text-sm font-mono bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-slate-900"
                       />
                       <button
@@ -184,17 +184,19 @@ export const LoginView: React.FC = () => {
                       type="submit"
                       className="w-full py-3 px-4 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-sm shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <span>Masuk Sistem</span>
+                      <span>Masuk Sistem CBT</span>
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
                 </form>
 
-                <div className="mt-6 pt-5 border-t border-slate-100 flex items-start gap-2.5 text-xs text-slate-500">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  <span>
-                    Sistem mengarahkan hak akses secara otomatis berdasarkan akun yang terdaftar.
-                  </span>
+                <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-xs text-slate-500">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span>
+                      Siswa diarahkan langsung ke Portal Ujian (tabel <code className="font-mono text-slate-800 font-bold">students</code>), Admin/Guru/Proktor ke Panel Manajemen (tabel <code className="font-mono text-slate-800 font-bold">users</code>).
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

@@ -121,10 +121,9 @@ export function mapRowToClass(row: Record<string, unknown>): ClassRoom {
   };
 }
 
-export function mapUserToRow(user: UserAccount) {
-  return {
+export function mapUserToRow(user: UserAccount): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: user.id,
-    auth_user_id: user.authUserId ?? null,
     username: user.username,
     password: user.password || 'CBT-2026*',
     name: user.name,
@@ -134,12 +133,15 @@ export function mapUserToRow(user: UserAccount) {
     jenis_kelamin: user.jenisKelamin,
     sekolah: user.sekolah,
   };
+  if (user.authUserId) {
+    row.auth_user_id = user.authUserId;
+  }
+  return row;
 }
 
-export function mapUserToRowLegacy(user: UserAccount) {
-  return {
+export function mapUserToRowLegacy(user: UserAccount): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: user.id,
-    auth_user_id: user.authUserId ?? null,
     username: user.username,
     name: user.name,
     role: user.role,
@@ -148,14 +150,17 @@ export function mapUserToRowLegacy(user: UserAccount) {
     jenis_kelamin: user.jenisKelamin,
     sekolah: user.sekolah,
   };
+  if (user.authUserId) {
+    row.auth_user_id = user.authUserId;
+  }
+  return row;
 }
 
-export function mapStudentToRow(student: UserAccount) {
-  return {
+export function mapStudentToRow(student: UserAccount): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     id: student.id,
-    auth_user_id: student.authUserId ?? null,
     username: student.username,
-    password: student.password || 'CBT-2026*',
+    password: student.password || 'CBT-2026',
     name: student.name,
     role: 'siswa',
     kelas: student.kelas,
@@ -163,6 +168,10 @@ export function mapStudentToRow(student: UserAccount) {
     jenis_kelamin: student.jenisKelamin,
     sekolah: student.sekolah,
   };
+  if (student.authUserId) {
+    row.auth_user_id = student.authUserId;
+  }
+  return row;
 }
 
 export function mapRowToUser(row: Record<string, unknown>): UserAccount {
@@ -409,6 +418,85 @@ export function mapRowToSession(row: Record<string, unknown>): ExamSession {
 // ============================================================================
 // SUPABASE CRUD & SYNC SERVICE
 // ============================================================================
+
+async function resilientUpsert(
+  client: SupabaseClient,
+  tableName: string,
+  rows: Record<string, unknown>[],
+  onConflict = 'id'
+): Promise<{ ok: boolean; error?: string }> {
+  if (rows.length === 0) return { ok: true };
+
+  // Attempt 1: full rows
+  const { error: err1 } = await client.from(tableName).upsert(rows, { onConflict });
+  if (!err1) return { ok: true };
+
+  let currentRows = [...rows];
+  let lastErr = err1;
+
+  // Attempt 2: strip 'auth_user_id' if schema cache doesn't know it
+  if (
+    lastErr.message.toLowerCase().includes('auth_user_id') ||
+    lastErr.message.toLowerCase().includes('schema cache')
+  ) {
+    currentRows = currentRows.map((r) => {
+      const copy = { ...r };
+      delete copy.auth_user_id;
+      return copy;
+    });
+    const { error: err2 } = await client.from(tableName).upsert(currentRows, { onConflict });
+    if (!err2) return { ok: true };
+    lastErr = err2;
+  }
+
+  // Attempt 3: strip 'password' if not yet migrated on that table
+  if (lastErr.message.toLowerCase().includes('password')) {
+    currentRows = currentRows.map((r) => {
+      const copy = { ...r };
+      delete copy.password;
+      return copy;
+    });
+    const { error: err3 } = await client.from(tableName).upsert(currentRows, { onConflict });
+    if (!err3) return { ok: true };
+    lastErr = err3;
+  }
+
+  // Attempt 4: strip newly added exam columns if missing in legacy table
+  if (
+    lastErr.message.toLowerCase().includes('exam_date') ||
+    lastErr.message.toLowerCase().includes('start_time') ||
+    lastErr.message.toLowerCase().includes('end_time')
+  ) {
+    currentRows = currentRows.map((r) => {
+      const copy = { ...r };
+      delete copy.exam_date;
+      delete copy.start_time;
+      delete copy.end_time;
+      return copy;
+    });
+    const { error: err4 } = await client.from(tableName).upsert(currentRows, { onConflict });
+    if (!err4) return { ok: true };
+    lastErr = err4;
+  }
+
+  // Attempt 5: strip newly added question columns if missing in legacy table
+  if (
+    lastErr.message.toLowerCase().includes('question_type') ||
+    lastErr.message.toLowerCase().includes('essay_answer_key')
+  ) {
+    currentRows = currentRows.map((r) => {
+      const copy = { ...r };
+      delete copy.question_type;
+      delete copy.essay_answer_key;
+      return copy;
+    });
+    const { error: err5 } = await client.from(tableName).upsert(currentRows, { onConflict });
+    if (!err5) return { ok: true };
+    lastErr = err5;
+  }
+
+  return { ok: false, error: lastErr.message };
+}
 
 export type SupabaseConnectionState =
   | 'unconfigured'
@@ -724,29 +812,25 @@ export const supabaseService = {
           ? mapRowToAppSettings(setRes.data[0] as Record<string, unknown>)
           : undefined;
 
-      const baseUsers = (usrRes.data || []).map((r) =>
-        mapRowToUser(r as Record<string, unknown>)
-      );
-      const studentRows =
-        !stuRes.error && stuRes.data
-          ? stuRes.data.map((r) => mapRowToUser(r as Record<string, unknown>))
-          : [];
+      // public.users khusus untuk akun aparatur (Admin, Guru, Proktor)
+      const staffList = (usrRes.data || [])
+        .map((r) => mapRowToUser(r as Record<string, unknown>))
+        .filter((u) => u.role !== 'siswa');
 
-      // Merge public.users (admin, guru, proktor) and public.students (siswa with password)
-      const mergedMap = new Map<string, UserAccount>();
-      for (const u of baseUsers) {
-        mergedMap.set(u.id, u);
-      }
-      for (const s of studentRows) {
-        mergedMap.set(s.id, { ...mergedMap.get(s.id), ...s, role: 'siswa' });
-      }
+      // public.students khusus untuk data siswa peserta ujian lengkap dengan password
+      const studentList = (!stuRes.error && stuRes.data ? stuRes.data : [])
+        .map((r) => mapRowToUser(r as Record<string, unknown>))
+        .map((s) => ({ ...s, role: 'siswa' as const }));
+
+      // Gabungkan akun untuk indeks sistem di aplikasi
+      const mergedUsers = [...staffList, ...studentList];
 
       return {
         ok: true,
         data: {
           appSettings,
           classes: (clsRes.data || []).map((r) => mapRowToClass(r as Record<string, unknown>)),
-          users: Array.from(mergedMap.values()),
+          users: mergedUsers,
           exams: (exmRes.data || []).map((r) => mapRowToExam(r as Record<string, unknown>)),
           questions: (qstRes.data || []).map((r) =>
             mapRowToQuestion(r as Record<string, unknown>)
@@ -782,74 +866,78 @@ export const supabaseService = {
     try {
       // 0. Upsert app_settings if table exists
       if (payload.appSettings) {
-        await supabase
-          .from('app_settings')
-          .upsert(mapAppSettingsToRow(payload.appSettings), { onConflict: 'id' });
+        await resilientUpsert(supabase, 'app_settings', [mapAppSettingsToRow(payload.appSettings)]);
       }
 
-      // 1. Upsert master tables (classes, users, students, exams)
+      // 1. Upsert classes
       if (payload.classes.length > 0) {
-        const { error: clsErr } = await supabase
-          .from('classes')
-          .upsert(payload.classes.map(mapClassToRow), { onConflict: 'id' });
-        if (clsErr) throw new Error(`Tabel classes: ${clsErr.message}`);
+        const clsRes = await resilientUpsert(
+          supabase,
+          'classes',
+          payload.classes.map(mapClassToRow)
+        );
+        if (!clsRes.ok) throw new Error(`Tabel classes: ${clsRes.error}`);
       }
 
-      if (payload.users.length > 0) {
-        const { error: usrErr } = await supabase
-          .from('users')
-          .upsert(payload.users.map(mapUserToRow), { onConflict: 'id' });
-        if (usrErr) {
-          // Fallback if password column on public.users not migrated yet
-          const { error: legacyErr } = await supabase
-            .from('users')
-            .upsert(payload.users.map(mapUserToRowLegacy), { onConflict: 'id' });
-          if (legacyErr) throw new Error(`Tabel users: ${legacyErr.message}`);
-        }
-
-        const studentOnly = payload.users.filter((u) => u.role === 'siswa');
-        if (studentOnly.length > 0) {
-          await supabase
-            .from('students')
-            .upsert(studentOnly.map(mapStudentToRow), { onConflict: 'id' });
+      // 2. Upsert public.students (Khusus Data Siswa Peserta Ujian & Password Siswa)
+      const studentOnly = payload.users.filter((u) => u.role === 'siswa');
+      if (studentOnly.length > 0) {
+        const stuRes = await resilientUpsert(
+          supabase,
+          'students',
+          studentOnly.map(mapStudentToRow)
+        );
+        if (!stuRes.ok) {
+          console.warn('Peringatan tabel students:', stuRes.error);
         }
       }
 
+      // 3. Upsert public.users (Khusus Akun Aparatur: Admin, Guru, Proktor)
+      const staffOnly = payload.users.filter((u) => u.role !== 'siswa');
+      if (staffOnly.length > 0) {
+        const usrRes = await resilientUpsert(
+          supabase,
+          'users',
+          staffOnly.map(mapUserToRow)
+        );
+        if (!usrRes.ok) {
+          console.warn('Peringatan tabel users:', usrRes.error);
+        }
+      }
+
+      // 4. Upsert exams (Paket & Jadwal Ujian)
       if (payload.exams.length > 0) {
-        const { error: exmErr } = await supabase
-          .from('exams')
-          .upsert(payload.exams.map(mapExamToRow), { onConflict: 'id' });
-        if (exmErr) {
-          const { error: exmLegacyErr } = await supabase
-            .from('exams')
-            .upsert(payload.exams.map(mapExamToRowLegacy), { onConflict: 'id' });
-          if (exmLegacyErr) throw new Error(`Tabel exams: ${exmLegacyErr.message}`);
-        }
+        const exmRes = await resilientUpsert(
+          supabase,
+          'exams',
+          payload.exams.map(mapExamToRow)
+        );
+        if (!exmRes.ok) throw new Error(`Tabel exams: ${exmRes.error}`);
       }
 
-      // 2. Upsert dependent tables (questions, exam_sessions)
+      // 5. Upsert questions (Bank Soal & Kunci)
       if (payload.questions.length > 0) {
-        const { error: qstErr } = await supabase
-          .from('questions')
-          .upsert(payload.questions.map(mapQuestionToRow), { onConflict: 'id' });
-        if (qstErr) {
-          const { error: qstLegacyErr } = await supabase
-            .from('questions')
-            .upsert(payload.questions.map(mapQuestionToRowLegacy), { onConflict: 'id' });
-          if (qstLegacyErr) throw new Error(`Tabel questions: ${qstLegacyErr.message}`);
-        }
+        const qstRes = await resilientUpsert(
+          supabase,
+          'questions',
+          payload.questions.map(mapQuestionToRow)
+        );
+        if (!qstRes.ok) throw new Error(`Tabel questions: ${qstRes.error}`);
       }
 
+      // 6. Upsert exam_sessions (Data Nilai & Sesi Siswa)
       if (payload.sessions.length > 0) {
-        const { error: sesErr } = await supabase
-          .from('exam_sessions')
-          .upsert(payload.sessions.map(mapSessionToRow), { onConflict: 'id' });
-        if (sesErr) throw new Error(`Tabel exam_sessions: ${sesErr.message}`);
+        const sesRes = await resilientUpsert(
+          supabase,
+          'exam_sessions',
+          payload.sessions.map(mapSessionToRow)
+        );
+        if (!sesRes.ok) throw new Error(`Tabel exam_sessions: ${sesRes.error}`);
       }
 
       return {
         ok: true,
-        message: `Berhasil menyinkronkan pengaturan aplikasi, ${payload.classes.length} kelas, ${payload.users.length} akun (user & siswa), ${payload.exams.length} paket ujian, ${payload.questions.length} butir soal, dan ${payload.sessions.length} data nilai ke Supabase.`,
+        message: `Berhasil menyinkronkan pengaturan aplikasi, ${payload.classes.length} kelas, ${studentOnly.length} siswa ke tabel students, ${payload.users.length} akun ke tabel users, ${payload.exams.length} paket ujian, ${payload.questions.length} butir soal, dan ${payload.sessions.length} data nilai ke Supabase.`,
       };
     } catch (err) {
       return {
@@ -865,14 +953,12 @@ export const supabaseService = {
   // Individual Entity Persistence Helpers
   async upsertAppSettings(settings: AppSettings) {
     if (!supabase) return;
-    await supabase
-      .from('app_settings')
-      .upsert(mapAppSettingsToRow(settings), { onConflict: 'id' });
+    await resilientUpsert(supabase, 'app_settings', [mapAppSettingsToRow(settings)]);
   },
 
   async upsertClass(cls: ClassRoom) {
     if (!supabase) return;
-    await supabase.from('classes').upsert(mapClassToRow(cls), { onConflict: 'id' });
+    await resilientUpsert(supabase, 'classes', [mapClassToRow(cls)]);
   },
 
   async deleteClass(id: string) {
@@ -882,33 +968,62 @@ export const supabaseService = {
 
   async upsertUser(user: UserAccount) {
     if (!supabase) return;
-    const { error } = await supabase
-      .from('users')
-      .upsert(mapUserToRow(user), { onConflict: 'id' });
-    if (error) {
-      await supabase.from('users').upsert(mapUserToRowLegacy(user), { onConflict: 'id' });
-    }
     if (user.role === 'siswa') {
-      await supabase.from('students').upsert(mapStudentToRow(user), { onConflict: 'id' });
+      await resilientUpsert(supabase, 'students', [mapStudentToRow(user)]);
+    } else {
+      await resilientUpsert(supabase, 'users', [mapUserToRow(user)]);
     }
   },
 
   async bulkUpsertUsers(usersList: UserAccount[]) {
     if (!supabase || usersList.length === 0) return;
-    const { error } = await supabase
-      .from('users')
-      .upsert(usersList.map(mapUserToRow), { onConflict: 'id' });
-    if (error) {
-      await supabase
-        .from('users')
-        .upsert(usersList.map(mapUserToRowLegacy), { onConflict: 'id' });
-    }
     const studentsList = usersList.filter((u) => u.role === 'siswa');
+    const staffList = usersList.filter((u) => u.role !== 'siswa');
     if (studentsList.length > 0) {
-      await supabase
-        .from('students')
-        .upsert(studentsList.map(mapStudentToRow), { onConflict: 'id' });
+      await resilientUpsert(supabase, 'students', studentsList.map(mapStudentToRow));
     }
+    if (staffList.length > 0) {
+      await resilientUpsert(supabase, 'users', staffList.map(mapUserToRow));
+    }
+  },
+
+  async authenticateStudentDirectly(usernameOrNoPeserta: string): Promise<UserAccount | null> {
+    if (!supabase) return null;
+    try {
+      const clean = usernameOrNoPeserta.trim().toLowerCase();
+      const { data, error } = await supabase
+        .from('students')
+        .select('*')
+        .or(`username.ilike.${clean},nomor_peserta.ilike.${clean}`)
+        .limit(1);
+      if (!error && data && data.length > 0) {
+        return { ...mapRowToUser(data[0] as Record<string, unknown>), role: 'siswa' };
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  },
+
+  async authenticateStaffDirectly(usernameOrNip: string): Promise<UserAccount | null> {
+    if (!supabase) return null;
+    try {
+      const clean = usernameOrNip.trim().toLowerCase();
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`username.ilike.${clean},nomor_peserta.ilike.${clean}`)
+        .limit(1);
+      if (!error && data && data.length > 0) {
+        const user = mapRowToUser(data[0] as Record<string, unknown>);
+        if (user.role !== 'siswa') {
+          return user;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
   },
 
   async deleteUser(id: string) {
@@ -929,14 +1044,7 @@ export const supabaseService = {
 
   async upsertExam(exam: ExamPackage) {
     if (!supabase) return;
-    const { error } = await supabase
-      .from('exams')
-      .upsert(mapExamToRow(exam), { onConflict: 'id' });
-    if (error) {
-      await supabase
-        .from('exams')
-        .upsert(mapExamToRowLegacy(exam), { onConflict: 'id' });
-    }
+    await resilientUpsert(supabase, 'exams', [mapExamToRow(exam)]);
   },
 
   async deleteExam(id: string) {
@@ -946,26 +1054,12 @@ export const supabaseService = {
 
   async upsertQuestion(q: Question) {
     if (!supabase) return;
-    const { error } = await supabase
-      .from('questions')
-      .upsert(mapQuestionToRow(q), { onConflict: 'id' });
-    if (error) {
-      await supabase
-        .from('questions')
-        .upsert(mapQuestionToRowLegacy(q), { onConflict: 'id' });
-    }
+    await resilientUpsert(supabase, 'questions', [mapQuestionToRow(q)]);
   },
 
   async upsertQuestions(questions: Question[]) {
     if (!supabase || questions.length === 0) return;
-    const { error } = await supabase
-      .from('questions')
-      .upsert(questions.map(mapQuestionToRow), { onConflict: 'id' });
-    if (error) {
-      await supabase
-        .from('questions')
-        .upsert(questions.map(mapQuestionToRowLegacy), { onConflict: 'id' });
-    }
+    await resilientUpsert(supabase, 'questions', questions.map(mapQuestionToRow));
   },
 
   async deleteQuestion(id: string) {
@@ -975,9 +1069,7 @@ export const supabaseService = {
 
   async upsertSession(s: ExamSession) {
     if (!supabase) return;
-    await supabase
-      .from('exam_sessions')
-      .upsert(mapSessionToRow(s), { onConflict: 'id' });
+    await resilientUpsert(supabase, 'exam_sessions', [mapSessionToRow(s)]);
   },
 
   async deleteSession(id: string) {
@@ -1131,6 +1223,30 @@ export const supabaseService = {
   async deleteOwnFile(userId: string, fileName: string) {
     if (!supabase) return;
     await supabase.storage.from('app-files').remove([`${userId}/${fileName}`]);
+  },
+
+  async broadcastRealtimePing(senderName: string = 'Admin'): Promise<{ ok: boolean; message: string }> {
+    if (!supabase) {
+      return { ok: false, message: 'Client Supabase belum dikonfigurasi.' };
+    }
+    try {
+      const channel = supabase.channel('cbt-live-sync');
+      await channel.send({
+        type: 'broadcast',
+        event: 'cbt-realtime-ping',
+        payload: {
+          sender: senderName,
+          timestamp: new Date().toISOString(),
+          message: `Sinyal realtime dari ${senderName} diterima.`,
+        },
+      });
+      return { ok: true, message: 'Sinyal realtime ping berhasil disiarkan ke seluruh klien.' };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : 'Gagal menyiarkan sinyal realtime ping.',
+      };
+    }
   },
 };
 
@@ -1405,6 +1521,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT NOT NULL DEFAULT 'CBT-2026*';
 ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE public.users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'guru', 'proktor', 'siswa'));
@@ -1434,6 +1551,7 @@ CREATE TABLE IF NOT EXISTS public.students (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
 ALTER TABLE public.students ADD COLUMN IF NOT EXISTS password TEXT NOT NULL DEFAULT 'CBT-2026';
 
 CREATE INDEX IF NOT EXISTS idx_students_kelas ON public.students (kelas);
@@ -1665,4 +1783,37 @@ to authenticated
 using (
   bucket_id = 'app-files'
   and name like (auth.uid()::text || '/%')
-);`;
+);
+
+-- 9. PUBLIKASI SUPABASE REALTIME (MENGAKTIFKAN KONEKSI REALTIME KE SEMUA TABEL)
+DO $$
+BEGIN
+  -- Set REPLICA IDENTITY FULL agar payload event UPDATE dan DELETE menyertakan data baris lengkap
+  ALTER TABLE public.app_settings REPLICA IDENTITY FULL;
+  ALTER TABLE public.classes REPLICA IDENTITY FULL;
+  ALTER TABLE public.users REPLICA IDENTITY FULL;
+  ALTER TABLE public.students REPLICA IDENTITY FULL;
+  ALTER TABLE public.exams REPLICA IDENTITY FULL;
+  ALTER TABLE public.questions REPLICA IDENTITY FULL;
+  ALTER TABLE public.exam_sessions REPLICA IDENTITY FULL;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE 
+        public.app_settings, 
+        public.classes, 
+        public.users, 
+        public.students, 
+        public.exams, 
+        public.questions, 
+        public.exam_sessions;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END IF;
+END $$;`;
