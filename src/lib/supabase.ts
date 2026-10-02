@@ -65,6 +65,9 @@ export function mapAppSettingsToRow(settings: AppSettings) {
     student_no_prefix: settings.studentNoPrefix,
     default_kkm: Number(settings.defaultKkm ?? 75),
     city_signature: settings.citySignature,
+    enable_alert_student_enter: Boolean(settings.enableAlertStudentEnter ?? true),
+    enable_alert_student_completed: Boolean(settings.enableAlertStudentCompleted ?? true),
+    enable_alert_student_tab_switch: Boolean(settings.enableAlertStudentTabSwitch ?? true),
   };
 }
 
@@ -90,6 +93,9 @@ export function mapRowToAppSettings(row: Record<string, unknown>): AppSettings {
     studentNoPrefix: String(row.student_no_prefix ?? '26-01-0104-'),
     defaultKkm: Number(row.default_kkm ?? 75),
     citySignature: String(row.city_signature ?? 'Jakarta'),
+    enableAlertStudentEnter: row.enable_alert_student_enter !== undefined ? Boolean(row.enable_alert_student_enter) : true,
+    enableAlertStudentCompleted: row.enable_alert_student_completed !== undefined ? Boolean(row.enable_alert_student_completed) : true,
+    enableAlertStudentTabSwitch: row.enable_alert_student_tab_switch !== undefined ? Boolean(row.enable_alert_student_tab_switch) : true,
   };
 }
 
@@ -205,7 +211,10 @@ export function mapExamToRow(exam: ExamPackage) {
     status: exam.status,
     passing_score: Number(exam.passingScore),
     show_explanation_after_submit: Boolean(exam.showExplanationAfterSubmit),
+    min_half_duration_submit: Boolean(exam.minHalfDurationSubmitRequired),
     instructions: exam.instructions,
+    source_exam_id: exam.sourceExamId ?? null,
+    bank_soal_name: exam.bankSoalName ?? null,
     created_at: exam.createdAt,
   };
 }
@@ -242,9 +251,12 @@ export function mapRowToExam(row: Record<string, unknown>): ExamPackage {
     status: (row.status as ExamStatus) || 'active',
     passingScore: Number(row.passing_score ?? 75),
     showExplanationAfterSubmit: Boolean(row.show_explanation_after_submit ?? true),
+    minHalfDurationSubmitRequired: Boolean(row.min_half_duration_submit ?? false),
     instructions: Array.isArray(row.instructions)
       ? (row.instructions as string[])
       : [],
+    sourceExamId: row.source_exam_id ? String(row.source_exam_id) : undefined,
+    bankSoalName: row.bank_soal_name ? String(row.bank_soal_name) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
   };
 }
@@ -298,7 +310,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 export function mapQuestionToRow(q: Question) {
   return {
     id: q.id,
-    exam_id: q.examId,
+    exam_id: q.examId || null,
     number: Number(q.number),
     question_type: q.questionType || 'pilihan_ganda',
     topic: q.topic,
@@ -548,15 +560,36 @@ async function resilientUpsert(
 
   // Attempt 4: strip newly added exam columns if missing in legacy table
   if (
+    lastErr.message.toLowerCase().includes('source_exam_id') ||
+    lastErr.message.toLowerCase().includes('bank_soal_name')
+  ) {
+    currentRows = currentRows.map((r) => {
+      const copy = { ...r };
+      delete copy.source_exam_id;
+      delete copy.bank_soal_name;
+      return copy;
+    });
+    const { error: err4a } = await client.from(tableName).upsert(currentRows, { onConflict });
+    if (!err4a) return { ok: true };
+    lastErr = err4a;
+  }
+
+  if (
     lastErr.message.toLowerCase().includes('exam_date') ||
     lastErr.message.toLowerCase().includes('start_time') ||
-    lastErr.message.toLowerCase().includes('end_time')
+    lastErr.message.toLowerCase().includes('end_time') ||
+    lastErr.message.toLowerCase().includes('source_exam_id') ||
+    lastErr.message.toLowerCase().includes('bank_soal_name') ||
+    lastErr.message.toLowerCase().includes('min_half_duration_submit')
   ) {
     currentRows = currentRows.map((r) => {
       const copy = { ...r };
       delete copy.exam_date;
       delete copy.start_time;
       delete copy.end_time;
+      delete copy.source_exam_id;
+      delete copy.bank_soal_name;
+      delete copy.min_half_duration_submit;
       return copy;
     });
     const { error: err4 } = await client.from(tableName).upsert(currentRows, { onConflict });
@@ -1708,6 +1741,9 @@ export const SUPABASE_TABLES_METADATA: SupabaseTableSchemaInfo[] = [
       { name: 'student_no_prefix', type: 'TEXT', constraints: "DEFAULT '26-01-0104-'", description: 'Prefix awalan untuk auto-increment nomor peserta siswa' },
       { name: 'default_kkm', type: 'NUMERIC(5,2)', constraints: 'DEFAULT 75', description: 'Standar KKM default satuan pendidikan' },
       { name: 'city_signature', type: 'TEXT', constraints: "DEFAULT 'Jakarta'", description: 'Kota tempat pengesahan tanda tangan laporan & kartu' },
+      { name: 'enable_alert_student_enter', type: 'BOOLEAN', constraints: 'DEFAULT TRUE', description: 'Aktifkan notifikasi pop-up saat siswa masuk ujian' },
+      { name: 'enable_alert_student_completed', type: 'BOOLEAN', constraints: 'DEFAULT TRUE', description: 'Aktifkan notifikasi pop-up saat siswa menyelesaikan ujian' },
+      { name: 'enable_alert_student_tab_switch', type: 'BOOLEAN', constraints: 'DEFAULT TRUE', description: 'Aktifkan notifikasi pop-up saat siswa berpindah tab browser' },
       { name: 'updated_at', type: 'TIMESTAMPTZ', constraints: 'DEFAULT NOW()', description: 'Waktu pembaruan konfigurasi terakhir' },
     ],
   },
@@ -1826,40 +1862,48 @@ export const SUPABASE_TABLES_METADATA: SupabaseTableSchemaInfo[] = [
   },
   {
     tableName: 'public.exams',
-    menuName: 'Menu Paket & Jadwal Ujian',
+    menuName: 'Menu Paket & Jadwal Ujian (Mendukung Bank Soal Bersama Lintas Paket)',
     description:
-      'Menyimpan jadwal ujian, mata pelajaran, target kelas, durasi ujian, ambang KKM, status rilis, dan 6-digit token proktor.',
+      'Menyimpan jadwal ujian, mata pelajaran, target kelas, durasi ujian, ambang KKM, status rilis, 6-digit token proktor, serta referensi source_exam_id dan bank_soal_name agar beberapa paket & jadwal ujian dapat menggunakan satu Bank Soal yang sama.',
     columns: [
       { name: 'id', type: 'TEXT', constraints: 'PRIMARY KEY', description: 'ID unik paket ujian (contoh: exam-mtk-01)' },
       { name: 'code', type: 'TEXT', constraints: 'NOT NULL UNIQUE', description: 'Kode paket ujian (contoh: USP-MTK-2026)' },
       { name: 'title', type: 'TEXT', constraints: 'NOT NULL', description: 'Judul lengkap paket asesmen/ujian' },
       { name: 'subject', type: 'TEXT', constraints: 'NOT NULL', description: 'Nama mata pelajaran' },
       { name: 'kelas_target', type: 'TEXT', constraints: 'NOT NULL', description: 'Sasaran rombel ujian (Semua Kelas XII / spesifik)' },
+      { name: 'exam_date', type: 'TEXT', constraints: 'NULLABLE', description: 'Tanggal pelaksanaan ujian (YYYY-MM-DD)' },
+      { name: 'start_time', type: 'TEXT', constraints: 'NULLABLE', description: 'Jam mulai sesi ujian (HH:mm)' },
+      { name: 'end_time', type: 'TEXT', constraints: 'NULLABLE', description: 'Jam berakhir sesi ujian (HH:mm)' },
       { name: 'duration_minutes', type: 'INTEGER', constraints: 'DEFAULT 45', description: 'Durasi pengerjaan ujian dalam menit' },
       { name: 'token', type: 'TEXT', constraints: 'NOT NULL', description: 'Token keamanan 6 karakter untuk memulai sesi' },
       { name: 'status', type: 'TEXT', constraints: "CHECK ('active','draft','closed')", description: 'Status ketersediaan paket ujian' },
       { name: 'passing_score', type: 'NUMERIC(5,2)', constraints: 'DEFAULT 75', description: 'Kriteria Ketuntasan Minimal (KKM)' },
       { name: 'show_explanation_after_submit', type: 'BOOLEAN', constraints: 'DEFAULT TRUE', description: 'Opsi tampilkan pembahasan setelah selesai' },
+      { name: 'min_half_duration_submit', type: 'BOOLEAN', constraints: 'DEFAULT FALSE', description: 'Aturan batas minimal 1/2 durasi pengerjaan wajib' },
       { name: 'instructions', type: 'JSONB', constraints: "DEFAULT '[]'::jsonb", description: 'Daftar tata tertib dan petunjuk pengerjaan' },
+      { name: 'source_exam_id', type: 'TEXT', constraints: 'NULLABLE (ID Paket Sumber / __TOPIC__)', description: 'ID paket ujian sumber apabila menggunakan kembali Bank Soal sebelumnya lintas jadwal' },
+      { name: 'bank_soal_name', type: 'TEXT', constraints: 'NULLABLE', description: 'Nama Kelompok Bank Soal / Topik yang digunakan bersama oleh paket & jadwal ujian ini' },
       { name: 'created_at', type: 'TIMESTAMPTZ', constraints: 'DEFAULT NOW()', description: 'Waktu pembuatan paket ujian' },
     ],
   },
   {
     tableName: 'public.questions',
-    menuName: 'Menu Bank Soal, Rich Text & Foto Soal',
+    menuName: 'Menu Bank Soal, Rich Text & Foto Soal (Reusable Lintas Paket & Jadwal)',
     description:
-      'Menyimpan butir soal pilihan ganda (A-E), wacana/stimulus Rich Text HTML, URL & path dokumen foto dari bucket Supabase (app-file), kunci jawaban, dan pembahasan.',
+      'Menyimpan butir soal pilihan ganda (A-E) & esai, wacana/stimulus Rich Text HTML, URL & path dokumen foto dari bucket Supabase (app-file), kunci jawaban, dan pembahasan. Kolom exam_id bersifat opsional (ON DELETE SET NULL) sehingga Bank Soal tetap utuh dan dapat dipakai oleh banyak paket/jadwal ujian.',
     columns: [
       { name: 'id', type: 'TEXT', constraints: 'PRIMARY KEY', description: 'ID unik butir soal (contoh: q-mtk-1)' },
-      { name: 'exam_id', type: 'TEXT', constraints: 'FK -> public.exams(id) CASCADE', description: 'Referensi ID paket ujian induk' },
-      { name: 'number', type: 'INTEGER', constraints: 'NOT NULL', description: 'Nomor urut soal dalam paket ujian' },
-      { name: 'topic', type: 'TEXT', constraints: 'NOT NULL', description: 'Nama Bank Soal / Topik kompetensi dasar' },
+      { name: 'exam_id', type: 'TEXT', constraints: 'FK -> public.exams(id) ON DELETE SET NULL', description: 'Referensi paket ujian asal (opsional, tidak terhapus saat jadwal dihapus)' },
+      { name: 'number', type: 'INTEGER', constraints: 'NOT NULL', description: 'Nomor urut soal dalam bank soal' },
+      { name: 'question_type', type: 'TEXT', constraints: "CHECK ('pilihan_ganda','esai') DEFAULT 'pilihan_ganda'", description: 'Tipe butir soal (Pilihan Ganda / Esai)' },
+      { name: 'topic', type: 'TEXT', constraints: 'NOT NULL', description: 'Nama Kelompok Bank Soal / Topik (dapat digunakan lintas paket & jadwal ujian)' },
       { name: 'stimulus', type: 'TEXT', constraints: 'NULLABLE', description: 'Teks wacana pengantar (mendukung Rich Text HTML)' },
       { name: 'question_text', type: 'TEXT', constraints: 'NOT NULL', description: 'Pertanyaan pokok butir soal (mendukung Rich Text HTML)' },
       { name: 'image_url', type: 'TEXT', constraints: 'NULLABLE', description: 'URL dokumen foto soal dari bucket Supabase Storage' },
       { name: 'storage_path', type: 'TEXT', constraints: 'NULLABLE', description: 'Path folder otomatis: app-file/paket-<kode>/bank-soal-<topik>/<file>' },
       { name: 'options', type: 'JSONB', constraints: "DEFAULT '[]'::jsonb", description: 'Array JSON opsi jawaban A, B, C, D, E' },
       { name: 'correct_option', type: 'TEXT', constraints: "CHECK ('A','B','C','D','E')", description: 'Huruf kunci jawaban benar' },
+      { name: 'essay_answer_key', type: 'TEXT', constraints: 'NULLABLE', description: 'Kunci jawaban / kata kunci penilaian soal esai' },
       { name: 'points', type: 'NUMERIC(6,2)', constraints: 'DEFAULT 10', description: 'Bobot poin butir soal' },
       { name: 'explanation', type: 'TEXT', constraints: 'NOT NULL', description: 'Uraian pembahasan penyelesaian soal (Rich Text HTML)' },
     ],
@@ -2018,9 +2062,16 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   student_no_prefix TEXT NOT NULL DEFAULT '26-01-0104-',
   default_kkm NUMERIC(5,2) NOT NULL DEFAULT 75,
   city_signature TEXT NOT NULL DEFAULT 'Jakarta',
+  enable_alert_student_enter BOOLEAN NOT NULL DEFAULT TRUE,
+  enable_alert_student_completed BOOLEAN NOT NULL DEFAULT TRUE,
+  enable_alert_student_tab_switch BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS enable_alert_student_enter BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS enable_alert_student_completed BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS enable_alert_student_tab_switch BOOLEAN NOT NULL DEFAULT TRUE;
 
 DROP TRIGGER IF EXISTS trg_app_settings_updated_at ON public.app_settings;
 CREATE TRIGGER trg_app_settings_updated_at
@@ -2122,7 +2173,10 @@ CREATE TABLE IF NOT EXISTS public.exams (
   status TEXT NOT NULL CHECK (status IN ('active', 'draft', 'closed')) DEFAULT 'active',
   passing_score NUMERIC(5,2) NOT NULL DEFAULT 75,
   show_explanation_after_submit BOOLEAN NOT NULL DEFAULT TRUE,
+  min_half_duration_submit BOOLEAN NOT NULL DEFAULT FALSE,
   instructions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source_exam_id TEXT,
+  bank_soal_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -2130,19 +2184,23 @@ CREATE TABLE IF NOT EXISTS public.exams (
 ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS exam_date TEXT;
 ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS start_time TEXT;
 ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS end_time TEXT;
+ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS min_half_duration_submit BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS source_exam_id TEXT;
+ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS bank_soal_name TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_exams_status ON public.exams (status);
 CREATE INDEX IF NOT EXISTS idx_exams_kelas_target ON public.exams (kelas_target);
+CREATE INDEX IF NOT EXISTS idx_exams_source_exam_id ON public.exams (source_exam_id);
 
 DROP TRIGGER IF EXISTS trg_exams_updated_at ON public.exams;
 CREATE TRIGGER trg_exams_updated_at
 BEFORE UPDATE ON public.exams
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- 4. TABEL BANK SOAL & KUNCI JAWABAN (public.questions)
+-- 4. TABEL BANK SOAL & KUNCI JAWABAN (public.questions - REUSABLE LINTAS PAKET & JADWAL UJIAN)
 CREATE TABLE IF NOT EXISTS public.questions (
   id TEXT PRIMARY KEY,
-  exam_id TEXT NOT NULL REFERENCES public.exams(id) ON DELETE CASCADE,
+  exam_id TEXT REFERENCES public.exams(id) ON DELETE SET NULL,
   number INTEGER NOT NULL,
   question_type TEXT NOT NULL CHECK (question_type IN ('pilihan_ganda', 'esai')) DEFAULT 'pilihan_ganda',
   topic TEXT NOT NULL,
@@ -2163,8 +2221,26 @@ ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS question_type TEXT NOT NUL
 ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS essay_answer_key TEXT;
 ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS image_url TEXT;
 ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS storage_path TEXT;
+ALTER TABLE public.questions ALTER COLUMN exam_id DROP NOT NULL;
+
+-- Pastikan saat satu paket/jadwal ujian dihapus, bank soal tidak ikut terhapus (ON DELETE SET NULL)
+ALTER TABLE public.questions DROP CONSTRAINT IF EXISTS questions_exam_id_fkey;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'questions_exam_id_set_null_fkey'
+  ) THEN
+    ALTER TABLE public.questions
+      ADD CONSTRAINT questions_exam_id_set_null_fkey
+      FOREIGN KEY (exam_id) REFERENCES public.exams(id) ON DELETE SET NULL NOT VALID;
+    ALTER TABLE public.questions VALIDATE CONSTRAINT questions_exam_id_set_null_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_questions_exam_id_number ON public.questions (exam_id, number);
+CREATE INDEX IF NOT EXISTS idx_questions_topic ON public.questions (topic);
 
 DROP TRIGGER IF EXISTS trg_questions_updated_at ON public.questions;
 CREATE TRIGGER trg_questions_updated_at

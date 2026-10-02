@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   INITIAL_APP_SETTINGS,
   INITIAL_CLASSES,
@@ -35,6 +35,7 @@ import {
   ExamPackage,
   ExamSession,
   OptionLetter,
+  ProctorAlert,
   Question,
   RealtimeLogEntry,
   SupabaseRealtimeStatus,
@@ -96,6 +97,11 @@ interface CBTContextType {
   realtimeLogs: RealtimeLogEntry[];
   sendRealtimePing: () => Promise<{ ok: boolean; message: string }>;
 
+  // Proctor Realtime Incident & Activity Alert System
+  proctorAlerts: ProctorAlert[];
+  dismissProctorAlert: (id: string) => void;
+  clearAllProctorAlerts: () => void;
+
   // Device Exam Score Recovery & Auto-Sync (Nilai Tersimpan pada Device Siswa)
   autoSyncDeviceScores: boolean;
   setAutoSyncDeviceScores: (enabled: boolean) => void;
@@ -140,6 +146,16 @@ interface CBTContextType {
     examId: string,
     items: Array<Omit<Question, 'id' | 'examId' | 'number'>>,
     mode?: 'append' | 'replace'
+  ) => number;
+  cloneQuestionsFromSource: (params: {
+    targetExamId: string;
+    sourceExamId?: string;
+    bankSoalTopic?: string;
+    mode?: 'append' | 'replace';
+  }) => number;
+  cloneQuestionsFromBankToExam: (
+    targetExamId: string,
+    options: { sourceExamId?: string; topicFilter?: string; mode?: 'append' | 'replace' }
   ) => number;
   updateQuestion: (id: string, updates: Partial<Question>) => void;
   deleteQuestion: (id: string) => void;
@@ -190,6 +206,114 @@ function generateRandomToken(): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+export function resolveRootBankExamId(
+  examId: string,
+  examsList: ExamPackage[]
+): string {
+  let currentId = examId;
+  const visited = new Set<string>();
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const found = examsList.find((e) => e.id === currentId);
+    if (
+      found?.sourceExamId &&
+      found.sourceExamId !== '__TOPIC__' &&
+      found.sourceExamId !== found.id
+    ) {
+      const parentExists = examsList.some((e) => e.id === found.sourceExamId);
+      if (parentExists) {
+        currentId = found.sourceExamId;
+        continue;
+      }
+      return found.sourceExamId;
+    }
+    break;
+  }
+  return currentId;
+}
+
+export function resolveQuestionsForExam(
+  examId: string,
+  examsList: ExamPackage[],
+  questionsList: Question[]
+): Question[] {
+  const exam = examsList.find((e) => e.id === examId);
+  if (!exam) {
+    return questionsList
+      .filter((q) => q.examId === examId)
+      .sort((a, b) => a.number - b.number);
+  }
+
+  const topicFilter =
+    exam.bankSoalName && exam.bankSoalName.trim() !== '' && exam.bankSoalName !== 'ALL'
+      ? exam.bankSoalName.trim().toLowerCase()
+      : null;
+
+  // Mode 1: Shared Bank Soal based on Topic / Kelompok Bank Soal across all packages
+  if (exam.sourceExamId === '__TOPIC__' && topicFilter) {
+    const matched = questionsList
+      .filter((q) => (q.topic || '').trim().toLowerCase() === topicFilter)
+      .sort((a, b) => a.number - b.number);
+    return matched.map((q, idx) => ({
+      ...q,
+      number: idx + 1,
+    }));
+  }
+
+  // Mode 2: Shared Bank Soal referencing a previous ExamPackage (sourceExamId)
+  if (
+    exam.sourceExamId &&
+    exam.sourceExamId !== '__TOPIC__' &&
+    exam.sourceExamId !== exam.id
+  ) {
+    const rootId = resolveRootBankExamId(exam.id, examsList);
+    const validIds = new Set<string>([exam.id, exam.sourceExamId, rootId]);
+    let matched = questionsList.filter((q) => validIds.has(q.examId));
+    if (topicFilter) {
+      const byTopic = matched.filter(
+        (q) => (q.topic || '').trim().toLowerCase() === topicFilter
+      );
+      if (byTopic.length > 0) {
+        matched = byTopic;
+      } else {
+        // Fallback: if topic exists in global bank soal
+        matched = questionsList.filter(
+          (q) => (q.topic || '').trim().toLowerCase() === topicFilter
+        );
+      }
+    }
+    matched.sort((a, b) => a.number - b.number);
+    return matched.map((q, idx) => ({
+      ...q,
+      number: idx + 1,
+    }));
+  }
+
+  // Mode 3: Direct / Standalone ExamPackage (or filtered by bankSoalName)
+  let direct = questionsList.filter((q) => q.examId === exam.id);
+  if (topicFilter) {
+    const byTopic = direct.filter(
+      (q) => (q.topic || '').trim().toLowerCase() === topicFilter
+    );
+    if (byTopic.length > 0) {
+      direct = byTopic;
+    } else {
+      // If exam has no direct questions yet but specifies bankSoalName, pull from global topic bank
+      const globalByTopic = questionsList.filter(
+        (q) => (q.topic || '').trim().toLowerCase() === topicFilter
+      );
+      if (globalByTopic.length > 0) {
+        direct = globalByTopic;
+      }
+    }
+  }
+  direct.sort((a, b) => a.number - b.number);
+  return direct.map((q, idx) => ({
+    ...q,
+    number: idx + 1,
+  }));
 }
 
 function calculateSessionMetrics(
@@ -523,6 +647,36 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastRealtimeEvent, setLastRealtimeEvent] = useState<RealtimeLogEntry | null>(null);
   const [realtimeLogs, setRealtimeLogs] = useState<RealtimeLogEntry[]>([]);
 
+  // Proctor Realtime Incident & Activity Alerts State
+  const [proctorAlerts, setProctorAlerts] = useState<ProctorAlert[]>([]);
+
+  const addProctorAlert = useCallback((alertData: Omit<ProctorAlert, 'id' | 'timestamp'>) => {
+    const newAlert: ProctorAlert = {
+      ...alertData,
+      id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString(),
+    };
+    setProctorAlerts((prev) => [newAlert, ...prev.filter((a) => a.sessionId !== newAlert.sessionId || a.type !== newAlert.type).slice(0, 29)]);
+  }, []);
+
+  const dismissProctorAlert = useCallback((id: string) => {
+    setProctorAlerts((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const clearAllProctorAlerts = useCallback(() => {
+    setProctorAlerts([]);
+  }, []);
+
+  const sessionsRef = useRef<ExamSession[]>(sessions);
+  const appSettingsRef = useRef<AppSettings>(appSettings);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+
+  useEffect(() => {
+    appSettingsRef.current = appSettings;
+  }, [appSettings]);
+
   const generateNextStudentNomorPeserta = useCallback(
     (offset = 0): string => {
       const prefix = (appSettings.studentNoPrefix || '26-01-0104-').trim();
@@ -616,9 +770,11 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Recalculate metrics & integrate with students before pushing
       const prepared: ExamSession[] = candidates.map((s) => {
         const { session: integrated } = integrateSessionWithStudents(s, users);
-        const exQuestions = questions
-          .filter((q) => q.examId === integrated.examId)
-          .sort((a, b) => a.number - b.number);
+        const exQuestions = resolveQuestionsForExam(
+          integrated.examId,
+          exams,
+          questions
+        );
         const hasAnswers = Object.keys(integrated.answers || {}).length > 0;
         if (exQuestions.length > 0 && hasAnswers) {
           const metrics = calculateSessionMetrics(exQuestions, integrated.answers);
@@ -701,9 +857,11 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .filter((s) => s && s.id && s.examId && (s.studentId || s.studentUsername))
         .map((s) => {
           const { session: integrated } = integrateSessionWithStudents(s, users);
-          const exQuestions = questions
-            .filter((q) => q.examId === integrated.examId)
-            .sort((a, b) => a.number - b.number);
+          const exQuestions = resolveQuestionsForExam(
+            integrated.examId,
+            exams,
+            questions
+          );
           const hasAnswers = Object.keys(integrated.answers || {}).length > 0;
           if (exQuestions.length > 0 && hasAnswers && integrated.score === 0) {
             const metrics = calculateSessionMetrics(exQuestions, integrated.answers);
@@ -860,9 +1018,11 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               rawLocal,
               remoteUsers
             );
-            const exQuestions = remoteQuestions
-              .filter((q) => q.examId === integratedLocal.examId)
-              .sort((a, b) => a.number - b.number);
+            const exQuestions = resolveQuestionsForExam(
+              integratedLocal.examId,
+              remoteExams,
+              remoteQuestions
+            );
             const hasAns = Object.keys(integratedLocal.answers || {}).length > 0;
             const reconciledLocal: ExamSession =
               exQuestions.length > 0 &&
@@ -1341,6 +1501,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (payload.eventType === 'INSERT') {
             if (payload.new) {
               const newSes = mapRowToSession(payload.new as Record<string, unknown>);
+              const ex = exams.find((e) => e.id === newSes.examId);
               setSessions((prev) => {
                 const idx = prev.findIndex((s) => s.id === newSes.id);
                 if (idx >= 0) {
@@ -1356,10 +1517,32 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 description: `Sesi Ujian siswa ${newSes.studentName} (${newSes.status}) mulai realtime.`,
                 recordId: newSes.id,
               });
+
+              // Toast & Alert untuk Proktor saat Siswa Masuk Ujian via Supabase Realtime
+              if (appSettingsRef.current.enableAlertStudentEnter) {
+                showToast(
+                  '🚀 Siswa Masuk Ujian',
+                  `Siswa ${newSes.studentName} (${newSes.studentKelas}) baru saja login & memulai pengerjaan [${ex?.code || newSes.examId}].`,
+                  'info'
+                );
+                addProctorAlert({
+                  type: 'student_enter',
+                  title: '🚀 Siswa Masuk Ujian',
+                  message: `Siswa ${newSes.studentName} (${newSes.studentKelas}) login & mulai pengerjaan [${ex?.code || newSes.examId}].`,
+                  studentName: newSes.studentName,
+                  studentKelas: newSes.studentKelas,
+                  studentNomorPeserta: newSes.studentNomorPeserta,
+                  examCode: ex?.code || newSes.examId,
+                  sessionId: newSes.id,
+                });
+              }
             }
           } else if (payload.eventType === 'UPDATE') {
             if (payload.new) {
               const updatedSes = mapRowToSession(payload.new as Record<string, unknown>);
+              const ex = exams.find((e) => e.id === updatedSes.examId);
+              const prevSes = sessionsRef.current.find((s: ExamSession) => s.id === updatedSes.id);
+
               setSessions((prev) =>
                 prev.map((s) => (s.id === updatedSes.id ? updatedSes : s))
               );
@@ -1369,6 +1552,63 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 description: `Nilai/Sesi siswa ${updatedSes.studentName} (Skor: ${updatedSes.score}) disinkronkan realtime.`,
                 recordId: updatedSes.id,
               });
+
+              // 1. Deteksi Kendala / Pelanggaran Perpindahan Tab
+              if (appSettingsRef.current.enableAlertStudentTabSwitch && updatedSes.tabSwitchCount > (prevSes?.tabSwitchCount || 0)) {
+                showToast(
+                  '⚠️ Peringatan Integritas Proktor',
+                  `Siswa ${updatedSes.studentName} (${updatedSes.studentKelas}) terdeteksi berpindah tab/fokus! (Total: ${updatedSes.tabSwitchCount} kali)`,
+                  'warning'
+                );
+                addProctorAlert({
+                  type: 'tab_switch',
+                  title: '⚠️ Peringatan Integritas Proktor',
+                  message: `Siswa ${updatedSes.studentName} (${updatedSes.studentKelas}) terdeteksi berpindah tab/fokus saat pengerjaan [${ex?.code || updatedSes.examId}]! (Total Pelanggaran: ${updatedSes.tabSwitchCount} kali)`,
+                  studentName: updatedSes.studentName,
+                  studentKelas: updatedSes.studentKelas,
+                  studentNomorPeserta: updatedSes.studentNomorPeserta,
+                  examCode: ex?.code || updatedSes.examId,
+                  sessionId: updatedSes.id,
+                  tabSwitchCount: updatedSes.tabSwitchCount,
+                });
+              } else if (prevSes?.status === 'in_progress' && updatedSes.status === 'completed') {
+                // 2. Deteksi Siswa Menyelesaikan Ujian
+                if (appSettingsRef.current.enableAlertStudentCompleted) {
+                  showToast(
+                    '✅ Siswa Selesaikan Ujian',
+                    `Siswa ${updatedSes.studentName} (${updatedSes.studentKelas}) telah mengumpulkan lembar jawaban [${ex?.code || updatedSes.examId}]. Skor: ${updatedSes.score}`,
+                    'success'
+                  );
+                  addProctorAlert({
+                    type: 'student_completed',
+                    title: '✅ Siswa Menyelesaikan Ujian',
+                    message: `Siswa ${updatedSes.studentName} (${updatedSes.studentKelas}) selesai mengumpulkan lembar jawaban [${ex?.code || updatedSes.examId}]. Skor: ${updatedSes.score}`,
+                    studentName: updatedSes.studentName,
+                    studentKelas: updatedSes.studentKelas,
+                    studentNomorPeserta: updatedSes.studentNomorPeserta,
+                    examCode: ex?.code || updatedSes.examId,
+                    sessionId: updatedSes.id,
+                    score: updatedSes.score,
+                  });
+                }
+              } else if (prevSes?.status === 'in_progress' && updatedSes.status === 'timed_out') {
+                // 3. Deteksi Kendala Sesi Ujian Waktu Habis / Timed Out
+                showToast(
+                  '⏰ Sesi Ujian Waktu Habis',
+                  `Sesi ujian siswa ${updatedSes.studentName} (${updatedSes.studentKelas}) diakhiri otomatis karena batas waktu habis.`,
+                  'warning'
+                );
+                addProctorAlert({
+                  type: 'student_timeout',
+                  title: '⏰ Sesi Ujian Waktu Habis',
+                  message: `Sesi ujian siswa ${updatedSes.studentName} (${updatedSes.studentKelas}) diakhiri otomatis karena batas waktu habis.`,
+                  studentName: updatedSes.studentName,
+                  studentKelas: updatedSes.studentKelas,
+                  studentNomorPeserta: updatedSes.studentNomorPeserta,
+                  examCode: ex?.code || updatedSes.examId,
+                  sessionId: updatedSes.id,
+                });
+              }
             }
           } else if (payload.eventType === 'DELETE') {
             const oldId = String((payload.old as { id?: string })?.id ?? '');
@@ -1667,11 +1907,54 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteExam = (id: string) => {
-    setExams((prev) => prev.filter((ex) => ex.id !== id));
-    setQuestions((prev) => prev.filter((q) => q.examId !== id));
+    const dependentExams = exams.filter((ex) => ex.id !== id && ex.sourceExamId === id);
+    const nextHolderExam = dependentExams[0];
+
+    setExams((prev) =>
+      prev
+        .filter((ex) => ex.id !== id)
+        .map((ex) => {
+          if (ex.sourceExamId !== id) return ex;
+          if (nextHolderExam && ex.id === nextHolderExam.id) {
+            const promoted: ExamPackage = { ...ex, sourceExamId: undefined };
+            void supabaseService.upsertExam(promoted);
+            return promoted;
+          }
+          if (nextHolderExam) {
+            const relinked: ExamPackage = { ...ex, sourceExamId: nextHolderExam.id };
+            void supabaseService.upsertExam(relinked);
+            return relinked;
+          }
+          return ex;
+        })
+    );
+
+    // Jangan hapus Bank Soal! Pindahkan kepemilikan ke paket ujian lain yang menggunakan bank soal ini,
+    // atau simpan dengan examId kosong ('') agar Bank Soal tetap tersedia untuk paket & jadwal ujian berikutnya.
+    setQuestions((prev) => {
+      const updatedQuestions: Question[] = [];
+      const nextList = prev.map((q) => {
+        if (q.examId !== id) return q;
+        const reassigned: Question = {
+          ...q,
+          examId: nextHolderExam ? nextHolderExam.id : '',
+        };
+        updatedQuestions.push(reassigned);
+        return reassigned;
+      });
+      if (updatedQuestions.length > 0) {
+        void supabaseService.upsertQuestions(updatedQuestions);
+      }
+      return nextList;
+    });
+
     setSessions((prev) => prev.filter((s) => s.examId !== id));
     void supabaseService.deleteExam(id);
-    showToast('Paket Ujian Dihapus', 'Paket ujian beserta soal terkait telah dihapus.', 'info');
+    showToast(
+      'Paket & Jadwal Ujian Dihapus',
+      'Jadwal ujian telah dihapus. Bank soal tetap tersimpan aman untuk digunakan pada paket/jadwal ujian lainnya.',
+      'info'
+    );
   };
 
   const regenerateExamToken = (examId: string) => {
@@ -1690,22 +1973,37 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Question Actions
   const getQuestionsByExam = (examId: string) => {
-    return questions
-      .filter((q) => q.examId === examId)
-      .sort((a, b) => a.number - b.number);
+    return resolveQuestionsForExam(examId, exams, questions);
   };
 
   const addQuestion = (qData: Omit<Question, 'id' | 'number'>) => {
-    const examQuestions = questions.filter((q) => q.examId === qData.examId);
+    const targetExam = exams.find((e) => e.id === qData.examId);
+    const effectiveExamId =
+      targetExam?.sourceExamId &&
+      targetExam.sourceExamId !== '__TOPIC__' &&
+      targetExam.sourceExamId !== targetExam.id
+        ? resolveRootBankExamId(targetExam.id, exams)
+        : qData.examId;
+
+    const effectiveTopic =
+      targetExam?.sourceExamId === '__TOPIC__' &&
+      targetExam.bankSoalName &&
+      targetExam.bankSoalName !== 'ALL'
+        ? targetExam.bankSoalName
+        : qData.topic;
+
+    const examQuestions = resolveQuestionsForExam(qData.examId, exams, questions);
     const nextNumber = examQuestions.length + 1;
     const newQuestion: Question = {
       ...qData,
+      examId: effectiveExamId,
+      topic: effectiveTopic,
       id: `q-${Date.now()}`,
       number: nextNumber,
     };
     setQuestions((prev) => [...prev, newQuestion]);
     void supabaseService.upsertQuestion(newQuestion);
-    showToast('Soal Ditambahkan', `Butir soal nomor ${nextNumber} berhasil disimpan.`, 'success');
+    showToast('Soal Ditambahkan', `Butir soal nomor ${nextNumber} berhasil disimpan ke Bank Soal.`, 'success');
   };
 
   const bulkAddQuestions = (
@@ -1715,8 +2013,16 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): number => {
     if (!examId || items.length === 0) return 0;
 
+    const targetExam = exams.find((e) => e.id === examId);
+    const effectiveExamId =
+      targetExam?.sourceExamId &&
+      targetExam.sourceExamId !== '__TOPIC__' &&
+      targetExam.sourceExamId !== targetExam.id
+        ? resolveRootBankExamId(targetExam.id, exams)
+        : examId;
+
     const existingForExam = questions
-      .filter((q) => q.examId === examId)
+      .filter((q) => q.examId === effectiveExamId)
       .sort((a, b) => a.number - b.number);
 
     if (mode === 'replace' && existingForExam.length > 0) {
@@ -1730,23 +2036,88 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const createdQuestions: Question[] = items.map((item, idx) => ({
       ...item,
       id: `q-${nowTs}-${idx + 1}`,
-      examId,
+      examId: effectiveExamId,
       number: startNumber + idx,
     }));
 
     setQuestions((prev) => {
       const baseList =
-        mode === 'replace' ? prev.filter((q) => q.examId !== examId) : prev;
+        mode === 'replace'
+          ? prev.filter((q) => q.examId !== effectiveExamId)
+          : prev;
       return [...baseList, ...createdQuestions];
     });
 
     void supabaseService.upsertQuestions(createdQuestions);
     showToast(
       'Bulk Upload Soal Berhasil',
-      `${createdQuestions.length} butir soal berhasil ditambahkan ke paket ujian.`,
+      `${createdQuestions.length} butir soal berhasil ditambahkan ke Bank Soal.`,
       'success'
     );
     return createdQuestions.length;
+  };
+
+  const cloneQuestionsFromSource = ({
+    targetExamId,
+    sourceExamId,
+    bankSoalTopic,
+    mode = 'append',
+  }: {
+    targetExamId: string;
+    sourceExamId?: string;
+    bankSoalTopic?: string;
+    mode?: 'append' | 'replace';
+  }): number => {
+    if (!targetExamId) return 0;
+    const cleanTopic =
+      bankSoalTopic && bankSoalTopic !== 'ALL' && bankSoalTopic.trim() !== ''
+        ? bankSoalTopic.trim().toLowerCase()
+        : null;
+
+    let sourceQuestions: Question[] = [];
+    if (sourceExamId && sourceExamId !== '__TOPIC__') {
+      sourceQuestions = resolveQuestionsForExam(sourceExamId, exams, questions);
+      if (cleanTopic) {
+        sourceQuestions = sourceQuestions.filter(
+          (q) => (q.topic || '').trim().toLowerCase() === cleanTopic
+        );
+      }
+    } else if (cleanTopic) {
+      sourceQuestions = questions
+        .filter((q) => (q.topic || '').trim().toLowerCase() === cleanTopic)
+        .sort((a, b) => a.number - b.number);
+    }
+
+    if (sourceQuestions.length === 0) return 0;
+
+    const itemsToClone: Array<Omit<Question, 'id' | 'examId' | 'number'>> =
+      sourceQuestions.map((sq) => ({
+        questionType: sq.questionType || 'pilihan_ganda',
+        topic: sq.topic,
+        stimulus: sq.stimulus,
+        questionText: sq.questionText,
+        imageUrl: sq.imageUrl,
+        storagePath: sq.storagePath,
+        options: sq.options.map((o) => ({ ...o })),
+        correctOption: sq.correctOption,
+        essayAnswerKey: sq.essayAnswerKey,
+        points: sq.points,
+        explanation: sq.explanation,
+      }));
+
+    return bulkAddQuestions(targetExamId, itemsToClone, mode);
+  };
+
+  const cloneQuestionsFromBankToExam = (
+    targetExamId: string,
+    options: { sourceExamId?: string; topicFilter?: string; mode?: 'append' | 'replace' }
+  ): number => {
+    return cloneQuestionsFromSource({
+      targetExamId,
+      sourceExamId: options.sourceExamId,
+      bankSoalTopic: options.topicFilter,
+      mode: options.mode || 'append',
+    });
   };
 
   const updateQuestion = (id: string, updates: Partial<Question>) => {
@@ -1890,6 +2261,19 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSessions((prev) => [newSession, ...prev]);
     saveLocalDeviceSessionsBackup([newSession]);
     void supabaseService.upsertSession(newSession, matchedStudent);
+
+    // Notifikasi Proktor saat Siswa Masuk Ujian
+    addProctorAlert({
+      type: 'student_enter',
+      title: '🚀 Siswa Masuk Ujian',
+      message: `Siswa ${matchedStudent.name} (${matchedStudent.kelas}) login & mulai pengerjaan [${exam.code}].`,
+      studentName: matchedStudent.name,
+      studentKelas: matchedStudent.kelas,
+      studentNomorPeserta: matchedStudent.nomorPeserta,
+      examCode: exam.code,
+      sessionId: newSession.id,
+    });
+
     return { ok: true, session: newSession };
   };
 
@@ -1956,12 +2340,27 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== sessionId || s.status !== 'in_progress') return s;
+        const ex = exams.find((e) => e.id === s.examId);
         const updated: ExamSession = {
           ...s,
           tabSwitchCount: s.tabSwitchCount + 1,
         };
         saveLocalDeviceSessionsBackup([updated]);
         void supabaseService.upsertSession(updated, currentUser || undefined);
+
+        // Notifikasi Peringatan Integritas Proktor saat Terdeteksi Perpindahan Tab
+        addProctorAlert({
+          type: 'tab_switch',
+          title: '⚠️ Peringatan Integritas Proktor',
+          message: `Siswa ${s.studentName} (${s.studentKelas}) terdeteksi berpindah tab/fokus saat pengerjaan [${ex?.code || s.examId}]! (Total Pelanggaran: ${updated.tabSwitchCount} kali)`,
+          studentName: s.studentName,
+          studentKelas: s.studentKelas,
+          studentNomorPeserta: s.studentNomorPeserta,
+          examCode: ex?.code || s.examId,
+          sessionId: s.id,
+          tabSwitchCount: updated.tabSwitchCount,
+        });
+
         return updated;
       })
     );
@@ -1986,6 +2385,32 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((s) => (s.id === sessionId ? finishedSession : s))
     );
     saveLocalDeviceSessionsBackup([finishedSession]);
+
+    const exObj = exams.find((e) => e.id === target.examId);
+    if (timedOut) {
+      addProctorAlert({
+        type: 'student_timeout',
+        title: '⏰ Sesi Ujian Waktu Habis',
+        message: `Sesi ujian siswa ${finishedSession.studentName} (${finishedSession.studentKelas}) diakhiri otomatis karena batas waktu habis.`,
+        studentName: finishedSession.studentName,
+        studentKelas: finishedSession.studentKelas,
+        studentNomorPeserta: finishedSession.studentNomorPeserta,
+        examCode: exObj?.code || finishedSession.examId,
+        sessionId: finishedSession.id,
+      });
+    } else {
+      addProctorAlert({
+        type: 'student_completed',
+        title: '✅ Siswa Menyelesaikan Ujian',
+        message: `Siswa ${finishedSession.studentName} (${finishedSession.studentKelas}) selesai mengumpulkan lembar jawaban [${exObj?.code || finishedSession.examId}]. Skor: ${finishedSession.score}`,
+        studentName: finishedSession.studentName,
+        studentKelas: finishedSession.studentKelas,
+        studentNomorPeserta: finishedSession.studentNomorPeserta,
+        examCode: exObj?.code || finishedSession.examId,
+        sessionId: finishedSession.id,
+        score: finishedSession.score,
+      });
+    }
     void supabaseService
       .upsertSession(finishedSession, matchedStudent || currentUser || undefined)
       .then((res) => {
@@ -2478,6 +2903,9 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastRealtimeEvent,
         realtimeLogs,
         sendRealtimePing,
+        proctorAlerts,
+        dismissProctorAlert,
+        clearAllProctorAlerts,
         autoSyncDeviceScores,
         setAutoSyncDeviceScores,
         deviceSavedSessions,
@@ -2499,6 +2927,8 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getQuestionsByExam,
         addQuestion,
         bulkAddQuestions,
+        cloneQuestionsFromSource,
+        cloneQuestionsFromBankToExam,
         updateQuestion,
         deleteQuestion,
         verifyTokenAndStartSession,

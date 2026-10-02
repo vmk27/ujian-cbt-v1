@@ -84,6 +84,7 @@ export const CBT_SCHEMA_SPEC: Record<string, TableSchemaSpec> = {
       'status',
       'passing_score',
       'show_explanation_after_submit',
+      'min_half_duration_submit',
       'instructions',
       'created_at',
       'updated_at',
@@ -297,6 +298,7 @@ CREATE TABLE IF NOT EXISTS public.exams (
   status TEXT NOT NULL DEFAULT 'active',
   passing_score NUMERIC(10,2) NOT NULL DEFAULT 75,
   show_explanation_after_submit BOOLEAN NOT NULL DEFAULT true,
+  min_half_duration_submit BOOLEAN NOT NULL DEFAULT false,
   instructions JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -313,6 +315,7 @@ ALTER TABLE public.exams
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS passing_score NUMERIC(10,2) NOT NULL DEFAULT 75,
   ADD COLUMN IF NOT EXISTS show_explanation_after_submit BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS min_half_duration_submit BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS instructions JSONB NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

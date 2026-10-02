@@ -577,7 +577,7 @@ export const GradeManagementTab: React.FC = () => {
             </div>
 
             {/* Sort Order */}
-            <div className="lg:col-span-3 flex items-center gap-2">
+            <div className="sm:col-span-2 lg:col-span-3 flex items-center gap-2">
               <div className="relative flex-1">
                 <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <select
@@ -693,8 +693,8 @@ export const GradeManagementTab: React.FC = () => {
         </div>
 
         {/* High-Density Gradebook Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="overflow-x-auto w-full">
+          <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
                 <th className="py-3 px-4 text-center w-14 whitespace-nowrap">No</th>
@@ -949,7 +949,7 @@ export const GradeManagementTab: React.FC = () => {
 
               <div className="p-5 space-y-4">
                 {/* Separated Status Metric Box */}
-                <div className="p-3.5 rounded-lg bg-emerald-50/60 border border-emerald-200 flex items-center justify-between gap-3">
+                <div className="p-3.5 rounded-lg bg-emerald-50/60 border border-emerald-200 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                     <span className="text-xs font-semibold text-emerald-950">
@@ -1022,7 +1022,7 @@ export const GradeManagementTab: React.FC = () => {
               <div className="p-5 space-y-4">
                 {/* Separated Status Box */}
                 <div
-                  className={`p-3.5 rounded-lg border flex items-center justify-between gap-3 ${
+                  className={`p-3.5 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${
                     unsyncedDeviceSessionIds.length > 0
                       ? 'bg-amber-50/70 border-amber-200 text-amber-900'
                       : 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
@@ -1116,27 +1116,27 @@ export const GradeManagementTab: React.FC = () => {
 
       {/* Modal 1: Koreksi / Edit Nilai Siswa */}
       {editingSession && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                <h3 className="font-semibold text-slate-900 text-base">
+                <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
+                <h3 className="font-semibold text-slate-900 text-sm sm:text-base">
                   Koreksi Nilai Siswa
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingSession(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveScoreEdit} className="p-6 space-y-4 text-xs">
+            <form onSubmit={handleSaveScoreEdit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
               <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                <div className="font-semibold text-sm text-slate-900">
+                <div className="font-semibold text-sm text-slate-900 break-words">
                   {editingSession.studentName}
                 </div>
                 <div className="font-mono text-slate-500">
@@ -1161,7 +1161,7 @@ export const GradeManagementTab: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
                     Jumlah Benar
@@ -1215,17 +1215,17 @@ export const GradeManagementTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-3 flex justify-end gap-2.5 border-t border-slate-200">
+              <div className="pt-3 flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setEditingSession(null)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-700 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-700 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold cursor-pointer"
                 >
                   Simpan Perubahan
                 </button>
@@ -1237,22 +1237,22 @@ export const GradeManagementTab: React.FC = () => {
 
       {/* Modal 2: Input Nilai Manual Baru */}
       {manualModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900 text-base">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl border border-slate-200 max-w-md w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="font-semibold text-slate-900 text-sm sm:text-base">
                 Input Data Nilai Siswa Manual
               </h3>
               <button
                 type="button"
                 onClick={() => setManualModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveManualGrade} className="p-6 space-y-4 text-xs">
+            <form onSubmit={handleSaveManualGrade} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
                   Pilih Peserta Didik (Siswa)
@@ -1308,7 +1308,7 @@ export const GradeManagementTab: React.FC = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
                     Nilai Akhir
@@ -1363,17 +1363,17 @@ export const GradeManagementTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-3 flex justify-end gap-2.5 border-t border-slate-200">
+              <div className="pt-3 flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setManualModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-700 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-300 bg-white font-semibold text-slate-700 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold cursor-pointer"
                 >
                   Simpan ke Leger Nilai
                 </button>
@@ -1385,28 +1385,28 @@ export const GradeManagementTab: React.FC = () => {
 
       {/* Modal 3: Inspeksi Lembar Jawaban Peserta */}
       {inspectedSession && inspectedExam && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-2xl w-full max-h-[85vh] flex flex-col shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <div className="text-xs font-mono font-semibold text-blue-700">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl border border-slate-200 max-w-2xl w-full max-h-[88vh] flex flex-col shadow-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <div className="text-xs font-mono font-semibold text-blue-700 truncate">
                   Inspeksi Lembar Jawaban · {inspectedExam.code}
                 </div>
-                <h3 className="font-semibold text-slate-900 text-base">
+                <h3 className="font-semibold text-slate-900 text-sm sm:text-base truncate">
                   {inspectedSession.studentName} ({inspectedSession.studentKelas})
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setInspectSessionId(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-center text-xs">
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
                   <div className="font-mono font-bold text-lg text-blue-700 tabular-nums">
                     {inspectedSession.score}
@@ -1433,7 +1433,7 @@ export const GradeManagementTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 pt-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-2">
                 {inspectedQuestions.map((q) => {
                   const ans = inspectedSession.answers[q.id];
                   const isEssay = q.questionType === 'esai';

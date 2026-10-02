@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import { ExamPackage, ExamSession, OptionLetter, Question } from '../../types/cbt';
+import { isExamScheduleExpired } from '../../utils/examAccess';
 import { RichTextContent } from '../common/RichTextEditor';
 
 interface ExamWorkspaceProps {
@@ -53,6 +54,8 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
   const [fontScale, setFontScale] = useState<'sm' | 'base' | 'lg'>('base');
   const [localSeconds, setLocalSeconds] = useState<number>(session.remainingSeconds);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showTimeOutModal, setShowTimeOutModal] = useState(false);
+  const [timeOutReason, setTimeOutReason] = useState<'schedule_expired' | 'duration_zero'>('duration_zero');
   const [confirmCheck, setConfirmCheck] = useState(false);
   const [mobileMatrixOpen, setMobileMatrixOpen] = useState(false);
 
@@ -73,7 +76,28 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
     };
   }, [submitExamSession, tickSessionTimer, onFinishExam]);
 
-  // Countdown timer effect
+  // Check if schedule time has expired
+  const checkIsScheduleExpired = useCallback(() => {
+    return isExamScheduleExpired(exam);
+  }, [exam]);
+
+  // Check on mount if schedule is already expired
+  useEffect(() => {
+    if (checkIsScheduleExpired() && !autoSubmittedRef.current) {
+      autoSubmittedRef.current = true;
+      setTimeOutReason('schedule_expired');
+      setShowSubmitModal(false);
+      setShowTimeOutModal(true);
+      const finished = callbacksRef.current.submitExamSession(session.id, true);
+      if (finished) {
+        setTimeout(() => {
+          callbacksRef.current.onFinishExam(finished.id);
+        }, 4000);
+      }
+    }
+  }, [checkIsScheduleExpired, session.id]);
+
+  // Countdown timer & schedule expiration checker
   useEffect(() => {
     secondsRef.current = session.remainingSeconds;
     autoSubmittedRef.current = false;
@@ -82,6 +106,30 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
 
   useEffect(() => {
     const interval = setInterval(() => {
+      // 1. Cek apabila jam jadwal ujian telah selesai (misal jam berakhir 09:00)
+      if (checkIsScheduleExpired()) {
+        clearInterval(interval);
+        if (!autoSubmittedRef.current) {
+          autoSubmittedRef.current = true;
+          setTimeOutReason('schedule_expired');
+          setShowSubmitModal(false);
+          setShowTimeOutModal(true);
+          showToast(
+            '⏰ Waktu Ujian Selesai!',
+            'Jadwal pelaksanaan ujian untuk paket ini telah berakhir. Sesi Anda dikumpulkan otomatis.',
+            'error'
+          );
+          const finished = callbacksRef.current.submitExamSession(session.id, true);
+          if (finished) {
+            setTimeout(() => {
+              callbacksRef.current.onFinishExam(finished.id);
+            }, 4000);
+          }
+        }
+        return;
+      }
+
+      // 2. Cek apabila durasi timer telah habis
       const prev = secondsRef.current;
       if (prev <= 1) {
         secondsRef.current = 0;
@@ -89,9 +137,19 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
         clearInterval(interval);
         if (!autoSubmittedRef.current) {
           autoSubmittedRef.current = true;
+          setTimeOutReason('duration_zero');
+          setShowSubmitModal(false);
+          setShowTimeOutModal(true);
+          showToast(
+            '⏰ Waktu Ujian Selesai!',
+            'Durasi pengerjaan ujian Anda telah habis. Jawaban Anda berhasil dikumpulkan otomatis.',
+            'error'
+          );
           const finished = callbacksRef.current.submitExamSession(session.id, true);
           if (finished) {
-            callbacksRef.current.onFinishExam(finished.id);
+            setTimeout(() => {
+              callbacksRef.current.onFinishExam(finished.id);
+            }, 4000);
           }
         }
         return;
@@ -106,7 +164,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [session.id]);
+  }, [checkIsScheduleExpired, session.id]);
 
   // Tab switch / visibility loss anti-cheat detector
   useEffect(() => {
@@ -126,16 +184,16 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
 
   const handleSelectOption = useCallback(
     (letter: OptionLetter) => {
-      if (!currentQuestion) return;
+      if (!currentQuestion || autoSubmittedRef.current || localSeconds <= 0) return;
       saveAnswer(session.id, currentQuestion.id, letter);
     },
-    [currentQuestion, saveAnswer, session.id]
+    [currentQuestion, saveAnswer, session.id, localSeconds]
   );
 
   const handleToggleDoubt = useCallback(() => {
-    if (!currentQuestion) return;
+    if (!currentQuestion || autoSubmittedRef.current || localSeconds <= 0) return;
     toggleDoubtFlag(session.id, currentQuestion.id);
-  }, [currentQuestion, toggleDoubtFlag, session.id]);
+  }, [currentQuestion, toggleDoubtFlag, session.id, localSeconds]);
 
   // Keyboard shortcuts for fast CBT operation
   useEffect(() => {
@@ -186,6 +244,17 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
   const doubtCount = questions.filter((q) => !!session.doubtFlags[q.id]).length;
   const unansweredCount = totalQuestions - answeredCount;
 
+  // Logika pembatasan minimal 1/2 durasi pengerjaan
+  const totalDurationSeconds = (exam.durationMinutes || 45) * 60;
+  const elapsedSeconds = Math.max(0, totalDurationSeconds - localSeconds);
+  const halfDurationSeconds = Math.floor(totalDurationSeconds / 2);
+  const minHalfRequired = Boolean(exam.minHalfDurationSubmitRequired);
+
+  const isHalfTimeReached = elapsedSeconds >= halfDurationSeconds;
+  const isExpired = autoSubmittedRef.current || localSeconds <= 0 || checkIsScheduleExpired();
+  const isSubmitAllowed = !minHalfRequired || isHalfTimeReached || isExpired;
+  const secondsRemainingToHalf = Math.max(0, halfDurationSeconds - elapsedSeconds);
+
   const isTimerWarning = localSeconds <= 300 && localSeconds > 60;
   const isTimerCritical = localSeconds <= 60;
 
@@ -208,28 +277,28 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col select-none">
       {/* Sticky Top Exam Header */}
-      <header className="sticky top-0 z-30 h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-4 shadow-2xs">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-[#1D4ED8] text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">
+      <header className="sticky top-0 z-30 min-h-14 py-2 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between gap-2 shadow-2xs">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[#1D4ED8] text-white font-mono font-bold text-xs sm:text-sm flex items-center justify-center shrink-0">
             CBT
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-[10px] sm:text-xs font-mono font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 shrink-0">
                 {exam.code}
               </span>
-              <h1 className="text-sm font-bold text-slate-900 truncate">
+              <h1 className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[120px] sm:max-w-xs md:max-w-md">
                 {exam.title}
               </h1>
             </div>
-            <div className="text-xs text-slate-500 truncate">
+            <div className="text-[11px] sm:text-xs text-slate-500 truncate hidden sm:block">
               Peserta: <span className="font-semibold text-slate-700">{session.studentName}</span> ({session.studentNomorPeserta} • {session.studentKelas})
             </div>
           </div>
         </div>
 
         {/* Right Controls: Font Size, Integrity Badge, Countdown Timer, Mobile Matrix Button */}
-        <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
           {/* Font Size Controller */}
           <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
             <span className="text-[11px] font-semibold text-slate-500 px-2">Ukuran Teks:</span>
@@ -272,16 +341,16 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
           {session.tabSwitchCount > 0 && (
             <div
               title="Jumlah perpindahan tab yang tercatat oleh pengawas sistem"
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-xs font-semibold"
+              className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 text-xs font-semibold"
             >
               <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-              <span className="tabular-nums">Pindah Tab: {session.tabSwitchCount}x</span>
+              <span className="tabular-nums">Tab: {session.tabSwitchCount}x</span>
             </div>
           )}
 
           {/* Live Countdown Timer */}
           <div
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border font-mono font-bold text-sm sm:text-base tabular-nums transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg border font-mono font-bold text-xs sm:text-base tabular-nums transition-colors ${
               isTimerCritical
                 ? 'bg-red-600 text-white border-red-700 animate-pulse'
                 : isTimerWarning
@@ -289,7 +358,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                 : 'bg-slate-900 text-white border-slate-800'
             }`}
           >
-            <Clock className="w-4 h-4 shrink-0" />
+            <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             <span>{formatSeconds(localSeconds)}</span>
           </div>
 
@@ -297,10 +366,10 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setMobileMatrixOpen(true)}
-            className="lg:hidden p-2 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 cursor-pointer"
+            className="lg:hidden p-1.5 sm:p-2 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
             aria-label="Daftar Nomor Soal"
           >
-            <LayoutGrid className="w-5 h-5" />
+            <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           {/* Back to Lobby (Pause/Save) */}
@@ -312,7 +381,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
             }}
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
           >
-            <span>Simpan & Keluar Sementara</span>
+            <span>Simpan & Keluar</span>
           </button>
         </div>
       </header>
@@ -321,6 +390,30 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
       <div className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Question Stem & Options Canvas (72% / 8.5 cols -> 8 cols on 12-col grid) */}
         <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-5">
+          {/* Visual Progress Bar Component */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-700">Progress Pengerjaan:</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 border border-blue-200 text-blue-700">
+                  {answeredCount} dari {totalQuestions} Soal Terjawab
+                </span>
+                {doubtCount > 0 && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-700 animate-pulse">
+                    {doubtCount} Ragu-Ragu
+                  </span>
+                )}
+              </div>
+              <span className="font-mono font-bold text-blue-700">{totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0}% Selesai</span>
+            </div>
+            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-[#1D4ED8] rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0}%` }}
+              />
+            </div>
+          </div>
+
           {/* Question Card */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
             {/* Question Metadata Subheader */}
@@ -369,7 +462,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
             </div>
 
             {/* Question Body */}
-            <div className="p-6 sm:p-8 space-y-6">
+            <div className="p-4 sm:p-8 space-y-5 sm:space-y-6">
               {/* Optional Stimulus / Reading Passage */}
               {currentQuestion.stimulus && (
                 <div className="p-5 rounded-lg bg-[#F7F6F2] border border-slate-200/90 border-l-4 border-l-blue-700 space-y-2">
@@ -416,6 +509,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                   <textarea
                     rows={6}
                     value={selectedAnswer}
+                    disabled={autoSubmittedRef.current || localSeconds <= 0}
                     onChange={(e) =>
                       saveAnswer(session.id, currentQuestion.id, e.target.value)
                     }
@@ -438,7 +532,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                         key={option.id}
                         type="button"
                         onClick={() => handleSelectOption(option.id)}
-                        className={`w-full text-left p-4 rounded-xl border-2 transition-all flex items-start gap-4 cursor-pointer group ${
+                        className={`w-full text-left p-3 sm:p-4 rounded-xl border-2 transition-all flex items-start gap-3 sm:gap-4 cursor-pointer group ${
                           isSelected
                             ? isDoubt
                               ? 'border-amber-500 bg-amber-50/50 shadow-2xs'
@@ -458,7 +552,7 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                           {option.id}
                         </span>
                         <div
-                          className={`flex-1 pt-0.5 ${fontSizeClass} ${
+                          className={`flex-1 min-w-0 break-words pt-0.5 ${fontSizeClass} ${
                             isSelected
                               ? 'font-semibold text-slate-900'
                               : 'text-slate-700'
@@ -474,23 +568,23 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
             </div>
 
             {/* Bottom Action Bar Inside Question Card */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="px-3 sm:px-6 py-3.5 bg-slate-50 border-t border-slate-200 grid grid-cols-3 sm:flex sm:flex-wrap items-center justify-between gap-2">
               {/* Previous Question */}
               <button
                 type="button"
                 disabled={currentIndex === 0}
                 onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
-                className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none text-slate-700 font-bold text-xs sm:text-sm flex items-center gap-2 transition-colors cursor-pointer"
+                className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:pointer-events-none text-slate-700 font-bold text-xs sm:text-sm flex items-center justify-center gap-1 sm:gap-1.5 transition-colors cursor-pointer"
               >
-                <ChevronLeft className="w-4 h-4" />
-                <span>Soal Sebelumnya</span>
+                <ChevronLeft className="w-4 h-4 shrink-0" />
+                <span className="truncate">Sebelumnya</span>
               </button>
 
               {/* Ragu-Ragu Toggle (Amber) */}
               <button
                 type="button"
                 onClick={handleToggleDoubt}
-                className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2.5 border transition-all cursor-pointer ${
+                className={`px-2.5 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 border transition-all cursor-pointer ${
                   isDoubt
                     ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs'
                     : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
@@ -500,9 +594,9 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                   type="checkbox"
                   checked={isDoubt}
                   readOnly
-                  className="w-4 h-4 accent-amber-700 rounded pointer-events-none"
+                  className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-amber-700 rounded pointer-events-none shrink-0"
                 />
-                <span>Ragu-Ragu</span>
+                <span className="truncate">Ragu-Ragu</span>
               </button>
 
               {/* Next Question or Finish */}
@@ -512,10 +606,10 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                   onClick={() =>
                     setCurrentIndex((prev) => Math.min(totalQuestions - 1, prev + 1))
                   }
-                  className="px-5 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  className="px-2.5 sm:px-5 py-2 sm:py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-1 sm:gap-1.5 shadow-xs transition-colors cursor-pointer"
                 >
-                  <span>Soal Selanjutnya</span>
-                  <ChevronRight className="w-4 h-4" />
+                  <span className="truncate">Selanjutnya</span>
+                  <ChevronRight className="w-4 h-4 shrink-0" />
                 </button>
               ) : (
                 <button
@@ -524,10 +618,10 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                     setConfirmCheck(false);
                     setShowSubmitModal(true);
                   }}
-                  className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  className="px-2.5 sm:px-5 py-2 sm:py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-1 sm:gap-1.5 shadow-xs transition-colors cursor-pointer"
                 >
-                  <Send className="w-4 h-4" />
-                  <span>Selesai & Kumpulkan</span>
+                  <Send className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Kumpulkan</span>
                 </button>
               )}
             </div>
@@ -766,41 +860,41 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
 
       {/* Submit Exam Confirmation Modal */}
       {showSubmitModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-lg w-full shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 text-base">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl border border-slate-200 max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
                 Konfirmasi Pengumpulan Lembar Jawaban
               </h3>
               <button
                 type="button"
                 onClick={() => setShowSubmitModal(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
               {/* Status Summary Grid */}
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
-                  <div className="text-xl font-mono font-extrabold text-emerald-700 tabular-nums">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
+                <div className="p-2.5 sm:p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <div className="text-lg sm:text-xl font-mono font-extrabold text-emerald-700 tabular-nums">
                     {answeredCount}
                   </div>
-                  <div className="text-xs font-semibold text-emerald-800">Soal Dijawab</div>
+                  <div className="text-[11px] sm:text-xs font-semibold text-emerald-800">Soal Dijawab</div>
                 </div>
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                  <div className="text-xl font-mono font-extrabold text-amber-700 tabular-nums">
+                <div className="p-2.5 sm:p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="text-lg sm:text-xl font-mono font-extrabold text-amber-700 tabular-nums">
                     {doubtCount}
                   </div>
-                  <div className="text-xs font-semibold text-amber-800">Ragu-Ragu</div>
+                  <div className="text-[11px] sm:text-xs font-semibold text-amber-800">Ragu-Ragu</div>
                 </div>
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
-                  <div className="text-xl font-mono font-extrabold text-slate-700 tabular-nums">
+                <div className="p-2.5 sm:p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-lg sm:text-xl font-mono font-extrabold text-slate-700 tabular-nums">
                     {unansweredCount}
                   </div>
-                  <div className="text-xs font-semibold text-slate-600">Belum Dijawab</div>
+                  <div className="text-[11px] sm:text-xs font-semibold text-slate-600">Belum Dijawab</div>
                 </div>
               </div>
 
@@ -823,6 +917,30 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
                 </div>
               )}
 
+              {/* Warning jika belum memenuhi minimal 1/2 durasi pengerjaan */}
+              {minHalfRequired && !isHalfTimeReached && !isExpired && (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 space-y-2">
+                  <div className="flex items-center gap-2 text-amber-950 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Belum Memenuhi Minimal 1/2 Durasi Ujian:</span>
+                  </div>
+                  <p className="text-xs text-amber-900 leading-relaxed">
+                    Aturan paket ujian ini mengharuskan Anda mengerjakan minimal{' '}
+                    <strong>
+                      1/2 (separuh) dari total durasi ({exam.durationMinutes} menit, yaitu minimal{' '}
+                      {Math.ceil(exam.durationMinutes / 2)} menit)
+                    </strong>{' '}
+                    sebelum diperbolehkan mengumpulkan lembar jawaban.
+                  </p>
+                  <div className="pt-2 border-t border-amber-200/80 flex flex-wrap items-center justify-between gap-2 text-xs font-mono font-bold">
+                    <span className="text-slate-700">Waktu Berjalan: {formatSeconds(elapsedSeconds)}</span>
+                    <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                      Terbuka Dalam: {formatSeconds(secondsRemainingToHalf)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <label className="flex items-start gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer">
                 <input
                   type="checkbox"
@@ -837,24 +955,75 @@ export const ExamWorkspace: React.FC<ExamWorkspaceProps> = ({
               </label>
             </div>
 
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-t border-slate-200 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowSubmitModal(false)}
-                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
               >
                 Kembali ke Soal
               </button>
               <button
                 type="button"
-                disabled={!confirmCheck}
+                disabled={!confirmCheck || !isSubmitAllowed}
                 onClick={handleConfirmSubmit}
-                className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:pointer-events-none text-white text-xs font-bold flex items-center gap-2 cursor-pointer"
+                className="w-full sm:w-auto px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:pointer-events-none text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>Ya, Kumpulkan Jawaban Sekarang</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Automatic Time-out / Schedule Expired Popup Modal */}
+      {showTimeOutModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full shadow-2xl p-6 text-center space-y-5 animate-in fade-in zoom-in duration-200">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center mx-auto shadow-2xs">
+              <Clock className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-extrabold text-slate-900">
+                {timeOutReason === 'schedule_expired'
+                  ? 'Jadwal Pelaksanaan Ujian Telah Berakhir!'
+                  : 'Waktu Ujian Telah Selesai!'}
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
+                {timeOutReason === 'schedule_expired'
+                  ? 'Batas jam pelaksanaan ujian untuk paket ini telah selesai. Anda tidak diperbolehkan mengisi atau mengubah jawaban lagi.'
+                  : 'Durasi waktu pengerjaan ujian Anda telah habis. Anda tidak diperbolehkan mengisi atau mengubah jawaban lagi.'}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2 text-left font-mono">
+              <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 text-slate-600">
+                <span>Paket Ujian:</span>
+                <strong className="text-slate-900 sm:text-right break-words">[{exam.code}] {exam.subject}</strong>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 text-slate-600">
+                <span>Status Sesi:</span>
+                <strong className="text-emerald-700 sm:text-right">Jawaban Tersimpan Otomatis</strong>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 text-slate-600">
+                <span>Total Jawaban Terisi:</span>
+                <strong className="text-blue-700 sm:text-right">{answeredCount} / {totalQuestions} Soal</strong>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const finished = submitExamSession(session.id, true);
+                onFinishExam(finished?.id || session.id);
+              }}
+              className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md transition-colors"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Lihat Hasil & Selesaikan Sesi</span>
+            </button>
           </div>
         </div>
       )}

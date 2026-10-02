@@ -27,7 +27,7 @@ export const ExamVisualSummary: React.FC<ExamVisualSummaryProps> = ({
   onNavigateToGrades,
   onNavigateToExams,
 }) => {
-  const { exams, sessions, users, classes } = useCBT();
+  const { exams, sessions, users, classes, appSettings } = useCBT();
 
   const [selectedExamId, setSelectedExamId] = useState<string>('ALL');
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('ALL');
@@ -182,7 +182,105 @@ export const ExamVisualSummary: React.FC<ExamVisualSummaryProps> = ({
     });
   }, [classes, studentUsers, sessions, selectedExamId, exams]);
 
-  // Score Distribution Bands
+  // Class-by-Class Statistics for KKM Comparison Chart (Data Berdasarkan Kelas)
+  const classKkmStatsList = useMemo(() => {
+    // Determine list of classes to display
+    const targetClasses =
+      selectedClassFilter === 'ALL'
+        ? classes
+        : classes.filter((c) => c.namaKelas === selectedClassFilter);
+
+    // Fallback if classes array is empty
+    const effectiveClasses =
+      targetClasses.length > 0
+        ? targetClasses.map((c) => ({
+            id: c.id,
+            namaKelas: c.namaKelas,
+            jurusan: c.jurusan,
+            tingkat: c.tingkat,
+          }))
+        : Array.from(
+            new Set(studentUsers.map((u) => u.kelas).filter(Boolean))
+          ).map((k) => ({
+            id: k,
+            namaKelas: k,
+            jurusan: 'Umum',
+            tingkat: 'XII',
+          }));
+
+    return effectiveClasses.map((cls) => {
+      const clsStudents = studentUsers.filter((u) => u.kelas === cls.namaKelas);
+      const clsSessions = sessions.filter((s) => {
+        const matchClass = s.studentKelas === cls.namaKelas;
+        const matchExam =
+          selectedExamId === 'ALL' || s.examId === selectedExamId;
+        return matchClass && matchExam;
+      });
+
+      const doneSessions = clsSessions.filter(
+        (s) => s.status === 'completed' || s.status === 'timed_out'
+      );
+
+      // Average score for this class
+      const avgScore =
+        doneSessions.length > 0
+          ? Math.round(
+              (doneSessions.reduce((acc, s) => acc + s.score, 0) /
+                doneSessions.length) *
+                10
+            ) / 10
+          : 0;
+
+      // Determine KKM threshold for this class
+      let classKkm = appSettings.defaultKkm || 75;
+      if (selectedExamId !== 'ALL') {
+        const selectedEx = exams.find((e) => e.id === selectedExamId);
+        if (selectedEx) classKkm = selectedEx.passingScore;
+      } else if (doneSessions.length > 0) {
+        const kkmSum = doneSessions.reduce((acc, s) => {
+          const ex = exams.find((e) => e.id === s.examId);
+          return acc + (ex?.passingScore ?? appSettings.defaultKkm ?? 75);
+        }, 0);
+        classKkm = Math.round(kkmSum / doneSessions.length);
+      } else if (exams.length > 0) {
+        classKkm = Math.round(
+          exams.reduce((acc, e) => acc + e.passingScore, 0) / exams.length
+        );
+      }
+
+      const passedCount = doneSessions.filter((s) => {
+        const ex = exams.find((e) => e.id === s.examId);
+        const kkm = ex?.passingScore ?? classKkm;
+        return s.score >= kkm;
+      }).length;
+
+      const passPercentage =
+        doneSessions.length > 0
+          ? Math.round((passedCount / doneSessions.length) * 100)
+          : 0;
+
+      return {
+        id: cls.id,
+        namaKelas: cls.namaKelas,
+        jurusan: cls.jurusan,
+        tingkat: cls.tingkat,
+        studentCount: clsStudents.length,
+        totalDone: doneSessions.length,
+        averageScore: avgScore,
+        kkm: classKkm,
+        passedCount,
+        passPercentage,
+      };
+    });
+  }, [
+    classes,
+    selectedClassFilter,
+    studentUsers,
+    sessions,
+    selectedExamId,
+    exams,
+    appSettings.defaultKkm,
+  ]);
   const scoreBands = useMemo(() => {
     const bands = [
       { label: '90 - 100 (A: Amat Baik)', range: '90-100', count: 0, color: '#10B981', bg: 'bg-emerald-500' },
@@ -420,22 +518,22 @@ export const ExamVisualSummary: React.FC<ExamVisualSummaryProps> = ({
       {/* Main Interactive Visual Charts Area */}
       {activeMetricTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Column Chart: Komparasi Nilai & KKM Per Paket Ujian */}
+          {/* Column Chart: Komparasi Nilai & KKM Per Kelas / Rombel */}
           <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-2xs flex flex-col justify-between">
             <div>
               <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Komparasi Nilai Rata-Rata Terhadap Ambang KKM
+                    Komparasi Nilai Rata-Rata Terhadap Ambang KKM (Data Per Kelas)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Grafik perbandingan skor rerata capaian siswa vs nilai minimum KKM untuk masing-masing mata ujian.
+                    Grafik perbandingan Rata-Rata Nilai vs Ambang KKM untuk masing-masing Rombongan Belajar (Kelas).
                   </p>
                 </div>
                 <div className="flex items-center gap-3 text-xs">
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded bg-blue-600 inline-block" />
-                    <span className="text-slate-600">Rerata Nilai</span>
+                    <span className="text-slate-600">Rerata Nilai Kelas</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded bg-amber-500 inline-block" />
@@ -444,15 +542,15 @@ export const ExamVisualSummary: React.FC<ExamVisualSummaryProps> = ({
                 </div>
               </div>
 
-              {/* Responsive SVG Bar Chart */}
+              {/* Responsive Class-based Bar Comparison Chart */}
               <div className="pt-6 pb-2">
-                {examStatsList.length === 0 ? (
+                {classKkmStatsList.length === 0 ? (
                   <div className="py-12 text-center text-xs text-slate-400">
-                    Belum ada data paket ujian yang tersedia.
+                    Belum ada data kelas / rombel yang tersedia.
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {examStatsList.map((item, idx) => {
+                    {classKkmStatsList.map((item, idx) => {
                       const isHovered = hoveredBarIndex === idx;
                       const isAboveKkm = item.averageScore >= item.kkm;
 
@@ -461,34 +559,39 @@ export const ExamVisualSummary: React.FC<ExamVisualSummaryProps> = ({
                           key={item.id}
                           onMouseEnter={() => setHoveredBarIndex(idx)}
                           onMouseLeave={() => setHoveredBarIndex(null)}
-                          className={`p-3 rounded-xl border transition-all ${
+                          className={`p-3.5 rounded-xl border transition-all ${
                             isHovered
                               ? 'bg-blue-50/50 border-blue-300 shadow-2xs'
                               : 'bg-slate-50/70 border-slate-200/80'
                           }`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-blue-700 bg-white px-2 py-0.5 rounded border border-blue-200">
-                                {item.code}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-slate-900 bg-white px-2.5 py-1 rounded border border-slate-200 text-xs">
+                                Kelas {item.namaKelas}
                               </span>
-                              <span className="font-bold text-slate-900">{item.subject}</span>
+                              <span className="text-slate-500 text-[11px] sm:text-xs">
+                                ({item.studentCount} Siswa · {item.totalDone} Sesi Selesai)
+                              </span>
                             </div>
-                            <div className="flex items-center gap-3 font-mono font-semibold tabular-nums">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 font-mono font-semibold tabular-nums text-xs">
                               <span className={isAboveKkm ? 'text-emerald-700 font-bold' : 'text-amber-800'}>
                                 Rerata: <strong>{item.averageScore}</strong>
                               </span>
                               <span className="text-slate-400">/</span>
-                              <span className="text-slate-600">KKM: {item.kkm}</span>
+                              <span className="text-slate-600">
+                                KKM: <strong>{item.kkm}</strong>
+                              </span>
                               <span className="text-slate-400">/</span>
-                              <span className="text-slate-600">Selesai: {item.totalDone} Siswa</span>
+                              <span className={item.passPercentage >= 75 ? 'text-blue-700 font-bold' : 'text-slate-600'}>
+                                Ketuntasan: {item.passPercentage}%
+                              </span>
                             </div>
                           </div>
 
-                          {/* Dual Bar Track (Score vs KKM) */}
+                          {/* Visual Bar Comparison Track */}
                           <div className="space-y-1.5">
-                            {/* Score Bar */}
-                            <div className="w-full bg-slate-200/70 rounded-full h-2.5 overflow-hidden">
+                            <div className="w-full bg-slate-200/80 rounded-full h-3 overflow-hidden relative">
                               <div
                                 className={`h-full rounded-full transition-all duration-500 ${
                                   isAboveKkm ? 'bg-blue-600' : 'bg-amber-500'

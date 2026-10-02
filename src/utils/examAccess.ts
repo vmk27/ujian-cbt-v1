@@ -169,3 +169,34 @@ export function formatTingkatLabel(
   if (!tingkat) return 'Semua Angkatan';
   return `Angkatan Kelas ${tingkat}`;
 }
+
+/**
+ * Memeriksa apakah jadwal pelaksanaan ujian telah berakhir berdasarkan tanggal dan jam berakhir (endTime).
+ */
+export function isExamScheduleExpired(
+  exam: Pick<ExamPackage, 'examDate' | 'endTime'> | null | undefined
+): boolean {
+  if (!exam || !exam.examDate || !exam.endTime) return false;
+  try {
+    const dateStr = exam.examDate.trim();
+    const timeStr = exam.endTime.trim();
+    if (!dateStr || !timeStr) return false;
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    if (
+      isNaN(year) ||
+      isNaN(month) ||
+      isNaN(day) ||
+      isNaN(hours) ||
+      isNaN(minutes)
+    ) {
+      return false;
+    }
+
+    const endDateTime = new Date(year, month - 1, day, hours, minutes, 0, 0);
+    return new Date().getTime() > endDateTime.getTime();
+  } catch {
+    return false;
+  }
+}

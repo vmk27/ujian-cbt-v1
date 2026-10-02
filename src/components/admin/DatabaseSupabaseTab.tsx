@@ -190,7 +190,7 @@ export const DatabaseSupabaseTab: React.FC = () => {
     for (const ex of exams) {
       const r = mapExamToRow(ex);
       lines.push(
-        `INSERT INTO public.exams (id, code, title, subject, kelas_target, exam_date, start_time, end_time, duration_minutes, token, status, passing_score, show_explanation_after_submit, instructions, created_at) VALUES (${escapeSqlLiteral(
+        `INSERT INTO public.exams (id, code, title, subject, kelas_target, exam_date, start_time, end_time, duration_minutes, token, status, passing_score, show_explanation_after_submit, instructions, source_exam_id, bank_soal_name, created_at) VALUES (${escapeSqlLiteral(
           r.id
         )}, ${escapeSqlLiteral(r.code)}, ${escapeSqlLiteral(
           r.title
@@ -205,8 +205,10 @@ export const DatabaseSupabaseTab: React.FC = () => {
         )}, ${escapeSqlLiteral(r.passing_score)}, ${escapeSqlLiteral(
           r.show_explanation_after_submit
         )}, ${escapeSqlLiteral(r.instructions)}, ${escapeSqlLiteral(
+          r.source_exam_id
+        )}, ${escapeSqlLiteral(r.bank_soal_name)}, ${escapeSqlLiteral(
           r.created_at
-        )}) ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, title = EXCLUDED.title, subject = EXCLUDED.subject, kelas_target = EXCLUDED.kelas_target, exam_date = EXCLUDED.exam_date, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, duration_minutes = EXCLUDED.duration_minutes, token = EXCLUDED.token, status = EXCLUDED.status, passing_score = EXCLUDED.passing_score, show_explanation_after_submit = EXCLUDED.show_explanation_after_submit, instructions = EXCLUDED.instructions;`
+        )}) ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, title = EXCLUDED.title, subject = EXCLUDED.subject, kelas_target = EXCLUDED.kelas_target, exam_date = EXCLUDED.exam_date, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, duration_minutes = EXCLUDED.duration_minutes, token = EXCLUDED.token, status = EXCLUDED.status, passing_score = EXCLUDED.passing_score, show_explanation_after_submit = EXCLUDED.show_explanation_after_submit, instructions = EXCLUDED.instructions, source_exam_id = EXCLUDED.source_exam_id, bank_soal_name = EXCLUDED.bank_soal_name;`
       );
     }
 
@@ -925,6 +927,122 @@ export const DatabaseSupabaseTab: React.FC = () => {
           <pre className="font-mono text-xs leading-relaxed select-all">
             {activeSqlContent}
           </pre>
+        </div>
+      </div>
+
+      {/* Log Riwayat Pembaruan Aplikasi */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="p-5 border-b border-slate-200 flex items-center gap-3">
+          <Wrench className="w-5 h-5 text-indigo-600 shrink-0" />
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Log Riwayat Pembaruan Aplikasi CBT SMANLUB (Database & Sistem)
+            </h3>
+            <p className="text-xs text-slate-500">
+              Daftar pemutakhiran fitur, struktur tabel database, dan optimasi integritas sistem.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-6 text-xs">
+          {/* Update Item 1 */}
+          <div className="relative pl-6 pb-6 border-l border-slate-200 last:pb-0 last:border-none">
+            <span className="absolute left-0 top-1.5 -translate-x-1/2 w-2 h-2 rounded-full bg-emerald-500 ring-4 ring-emerald-100" />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-bold text-slate-900 text-sm">Versi 1.4.0 — Pemutakhiran Notifikasi & Integritas Ujian</span>
+              <span aria-hidden="true">·</span>
+              <span>Oktober 2026</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono text-[10px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">Struktur Tabel Diperbarui</span>
+            </div>
+            
+            <p className="text-slate-700 font-medium mt-2 leading-relaxed">
+              Penambahan pengaturan toleransi notifikasi proktor secara real-time yang langsung disimpan pada tabel database <code className="font-mono text-slate-900 font-bold">public.app_settings</code>:
+            </p>
+            <ul className="list-disc pl-5 mt-2 space-y-1 text-slate-600 leading-relaxed">
+              <li>
+                <strong>enable_alert_student_enter</strong>: Mengaktifkan/menonaktifkan alarm proktor saat siswa memasuki ruang ujian.
+              </li>
+              <li>
+                <strong>enable_alert_student_completed</strong>: Mengaktifkan/menonaktifkan alarm proktor saat siswa mengklik selesai ujian.
+              </li>
+              <li>
+                <strong>enable_alert_student_tab_switch</strong>: Mengaktifkan/menonaktifkan alarm proktor saat siswa melakukan pelanggaran pindah tab.
+              </li>
+              <li>
+                <strong>Notifikasi Bertumpuk Glassmorph</strong>: Pembaruan visual sistem notifikasi di kanan atas menggunakan teknologi glassmorphic stack (overlap peeking cards) dengan <code className="font-mono text-slate-900">backdrop-blur-md</code> agar tidak menutupi tombol pengerjaan siswa.
+              </li>
+            </ul>
+          </div>
+
+          {/* Update Item 2 */}
+          <div className="relative pl-6 pb-6 border-l border-slate-200 last:pb-0 last:border-none">
+            <span className="absolute left-0 top-1.5 -translate-x-1/2 w-2 h-2 rounded-full bg-blue-500 ring-4 ring-blue-100" />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-bold text-slate-900 text-sm">Versi 1.3.5 — Modul Progres & Mekanisme Auto-Submit</span>
+              <span aria-hidden="true">·</span>
+              <span>Oktober 2026</span>
+            </div>
+            
+            <p className="text-slate-700 font-medium mt-2 leading-relaxed">
+              Peningkatan fungsionalitas portal pengerjaan siswa demi menekan kecurangan dan memberikan umpan balik instan:
+            </p>
+            <ul className="list-disc pl-5 mt-1.5 space-y-1 text-slate-600 leading-relaxed">
+              <li>
+                <strong>Visual Progress Bar</strong>: Bilah penanda persentase di Exam Workspace menampilkan jumlah soal terjawab, ragu-ragu, dan sisa kosong dari total bank soal.
+              </li>
+              <li>
+                <strong>Mekanisme Auto-Submit Instan</strong>: Pengumpulan lembar jawaban secara paksa ke database Supabase saat sisa waktu pengerjaan atau jadwal berakhir menyentuh angka nol, mencegah pengerjaan melebihi tenggat.
+              </li>
+              <li>
+                <strong>Kunci Input Esai Otomatis</strong>: Menyegel dan menonaktifkan textarea jawaban esai/uraian siswa secara dinamis saat timer habis, memastikan pengerjaan mutlak berhenti.
+              </li>
+            </ul>
+          </div>
+
+          {/* Update Item 3 */}
+          <div className="relative pl-6 pb-6 border-l border-slate-200 last:pb-0 last:border-none">
+            <span className="absolute left-0 top-1.5 -translate-x-1/2 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-slate-100" />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-bold text-slate-900 text-sm">Versi 1.2.0 — Tombol Profil & Logout Menu Atas</span>
+              <span aria-hidden="true">·</span>
+              <span>Oktober 2026</span>
+            </div>
+            
+            <p className="text-slate-700 font-medium mt-2 leading-relaxed">
+              Penyempurnaan tata letak header portal demi keamanan dan kejelasan identitas akun pengguna:
+            </p>
+            <ul className="list-disc pl-5 mt-1.5 space-y-1 text-slate-600 leading-relaxed">
+              <li>
+                <strong>Tombol Profil Dropdown</strong>: Tombol profil melayang di menu atas yang menampilkan avatar inisial, nama lengkap, dan peran/kelas pengguna secara dinamis.
+              </li>
+              <li>
+                <strong>Fungsi LOGOUT Terpadu</strong>: Tombol keluar cepat (*Keluar*) di drop-down untuk menghentikan sesi login dengan aman dan kembali ke halaman login utama.
+              </li>
+            </ul>
+          </div>
+
+          {/* Update Item 4 */}
+          <div className="relative pl-6 pb-6 border-l border-slate-200 last:pb-0 last:border-none">
+            <span className="absolute left-0 top-1.5 -translate-x-1/2 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-slate-100" />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-bold text-slate-900 text-sm">Versi 1.1.0 — Pembersihan Layout & Grid Adaptif</span>
+              <span aria-hidden="true">·</span>
+              <span>Oktober 2026</span>
+            </div>
+            
+            <p className="text-slate-700 font-medium mt-2 leading-relaxed">
+              Pembersihan layout menyeluruh pada komponen seluler agar ramah bagi pengguna ponsel pintar (smartphone) maupun tablet:
+            </p>
+            <ul className="list-disc pl-5 mt-1.5 space-y-1 text-slate-600 leading-relaxed">
+              <li>
+                <strong>Grid Adaptif Seluler</strong>: Mencegah tabel data kelas, user, siswa, dan formulir input meluap (*overflow*) pada layar kecil dengan merespons ukuran layar.
+              </li>
+              <li>
+                <strong>Optimasi Menu Samping (Sidebar)</strong>: Sidebar responsif yang dapat dilipat (*collapsible*) untuk memaksimalkan ruang kerja pada perangkat seluler.
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>

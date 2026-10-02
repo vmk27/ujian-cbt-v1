@@ -122,6 +122,9 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState<boolean>(false);
 
+  // Single Deletion Confirmation State
+  const [studentToDelete, setStudentToDelete] = useState<UserAccount | null>(null);
+
   // Add / Edit Student Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<UserAccount | null>(null);
@@ -230,9 +233,15 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
 
   const handleConfirmBulkDelete = () => {
     if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
     bulkDeleteUsers(selectedIds);
     setSelectedIds([]);
     setShowBulkDeleteConfirm(false);
+    showToast(
+      'Hapus Massal Berhasil',
+      `${count} data siswa beserta seluruh riwayat nilai/sesi ujian mereka telah dihapus secara permanen dari database.`,
+      'info'
+    );
   };
 
   const toggleRowPassword = (id: string) => {
@@ -903,26 +912,26 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setShowSchemaInfo((prev) => !prev)}
-            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2.5 rounded-xl border transition-all cursor-pointer ${
+            className={`inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2.5 rounded-xl border transition-all cursor-pointer ${
               showSchemaInfo
                 ? 'bg-slate-900 text-white border-slate-900'
                 : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
             }`}
           >
-            <Database className="w-3.5 h-3.5" />
-            Struktur Kolom Siswa
+            <Database className="w-3.5 h-3.5 shrink-0" />
+            <span>Struktur Kolom Siswa</span>
           </button>
           <button
             type="button"
             onClick={exportStudentsCSV}
-            className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3.5 py-2.5 rounded-xl transition-all cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs px-3.5 py-2.5 rounded-xl transition-all cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
-            Ekspor CSV
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span>Ekspor CSV</span>
           </button>
           <button
             type="button"
@@ -930,18 +939,18 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
               setUploadReport(null);
               setShowBulkUploadModal(true);
             }}
-            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
           >
-            <Upload className="w-4 h-4" />
-            Bulk Upload Siswa (Template)
+            <Upload className="w-4 h-4 shrink-0" />
+            <span>Bulk Upload Siswa (Template)</span>
           </button>
           <button
             type="button"
             onClick={openAddModal}
-            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            Tambah Siswa
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Tambah Siswa</span>
           </button>
         </div>
       </div>
@@ -1043,7 +1052,7 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
       )}
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs">
           <p className="text-xs font-semibold text-slate-500">Total Siswa Terdaftar</p>
           <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums">
@@ -1099,11 +1108,11 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
               className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-indigo-500"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap items-center gap-2">
             <select
               value={classFilter}
               onChange={(e) => setClassFilter(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-slate-50 focus:outline-none focus:border-indigo-500 cursor-pointer"
+              className="w-full lg:w-auto px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-slate-50 focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
               <option value="ALL">Semua Kelas ({students.length})</option>
               {classOptions.map((cls) => (
@@ -1113,13 +1122,13 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
               ))}
             </select>
 
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <div className="grid grid-cols-3 bg-slate-100 p-1 rounded-xl w-full lg:w-auto">
               {(['ALL', 'L', 'P'] as const).map((g) => (
                 <button
                   key={g}
                   type="button"
                   onClick={() => setGenderFilter(g)}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
                     genderFilter === g
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -1133,7 +1142,7 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
             <button
               type="button"
               onClick={() => setShowAllPasswords((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+              className={`sm:col-span-2 lg:col-span-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                 showAllPasswords
                   ? 'bg-amber-50 border-amber-300 text-amber-800'
                   : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
@@ -1141,13 +1150,13 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
             >
               {showAllPasswords ? (
                 <>
-                  <EyeOff className="w-3.5 h-3.5" />
-                  Sembunyikan Password
+                  <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                  <span>Sembunyikan Password</span>
                 </>
               ) : (
                 <>
-                  <Eye className="w-3.5 h-3.5" />
-                  Tampilkan Semua Password
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span>Tampilkan Semua Password</span>
                 </>
               )}
             </button>
@@ -1189,7 +1198,7 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
       {/* Students Table with Auto-Increment No., Password Column, and Bulk Checkboxes */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 <th className="py-3.5 pl-4 pr-2 w-10 text-center">
@@ -1372,9 +1381,9 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => deleteUserAccount(student.id)}
+                          onClick={() => setStudentToDelete(student)}
                           className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Hapus Siswa"
+                          title="Hapus Siswa & Nilai"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1420,14 +1429,14 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
       {/* MODAL 1: TAMBAH / EDIT SISWA TUNGGAL (DENGAN KOLOM PASSWORD)              */}
       {/* ========================================================================== */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden my-8">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex items-center justify-between gap-2 bg-slate-50 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 truncate">
                   {editingStudent ? 'Edit Identitas & Password Siswa' : 'Registrasi Peserta Siswa Baru'}
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
+                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
                   Struktur tabel <code className="font-mono">public.students</code> (identik{' '}
                   <code className="font-mono">public.users</code> + kolom{' '}
                   <code className="font-mono">password</code>)
@@ -1435,13 +1444,13 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveStudent} className="p-6 space-y-4">
+            <form onSubmit={handleSaveStudent} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Nama Lengkap Siswa (<code className="font-mono lowercase">name</code>)
@@ -1456,7 +1465,7 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     NISN / Username (<code className="font-mono lowercase">username</code>)
@@ -1471,7 +1480,7 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
                   />
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                       Nomor Peserta (Opsional)
                     </label>
@@ -1528,10 +1537,10 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
 
               {/* Password Field for Student */}
               <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3.5">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
                   <label className="flex items-center gap-1.5 text-xs font-bold text-amber-950 uppercase tracking-wider">
-                    <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                    Password Login Siswa (<code className="font-mono lowercase">password</code>)
+                    <KeyRound className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Password Login Siswa (<code className="font-mono lowercase">password</code>)</span>
                   </label>
                   <button
                     type="button"
@@ -1573,7 +1582,7 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Kelas / Rombel (<code className="font-mono lowercase">kelas</code>)
@@ -1620,22 +1629,80 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <div className="pt-3 border-t border-slate-200 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 cursor-pointer text-center"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs cursor-pointer text-center"
                 >
                   {editingStudent ? 'Simpan Perubahan' : 'Daftarkan Siswa'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================== */}
+      {/* MODAL: KONFIRMASI DELETE SISWA TUNGGAL                                     */}
+      {/* ========================================================================== */}
+      {studentToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Hapus Data Siswa & Seluruh Nilainya?
+                </h3>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                  Apakah Anda yakin ingin menghapus siswa <strong>{studentToDelete.name}</strong> (NISN: {studentToDelete.username})?
+                </p>
+                <div className="mt-3.5 p-3.5 rounded-xl bg-rose-50 border border-rose-100 text-rose-950 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>PENTING (Koneksi Cascade):</span>
+                  </div>
+                  <p className="text-[11px] text-rose-800 leading-relaxed font-semibold">
+                    Menghapus akun siswa ini akan <strong>menghapus secara permanen</strong> seluruh riwayat sesi ujian, lembar jawaban, dan data nilai (*nilai*) mereka dari database Supabase secara otomatis (*on delete cascade*).
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStudentToDelete(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    deleteUserAccount(studentToDelete.id);
+                    showToast(
+                      'Siswa & Nilai Berhasil Dihapus',
+                      `Akun ${studentToDelete.name} beserta seluruh riwayat nilainya telah dibersihkan dari database.`,
+                      'info'
+                    );
+                    setStudentToDelete(null);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Ya, Hapus Permanen
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1655,8 +1722,17 @@ export const StudentManagementTab: React.FC<StudentManagementTabProps> = ({
                   Hapus Massal {selectedStudentsList.length} Data Siswa?
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Tindakan ini akan menghapus <strong>{selectedStudentsList.length} akun siswa</strong> yang dipilih beserta riwayat sesi ujian mereka dari aplikasi dan database Supabase.
+                  Tindakan ini akan menghapus <strong>{selectedStudentsList.length} akun siswa</strong> yang dipilih.
                 </p>
+                <div className="mt-3.5 p-3.5 rounded-xl bg-rose-50 border border-rose-100 text-rose-950 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>PERINGATAN INTEGRITAS DATA:</span>
+                  </div>
+                  <p className="text-[11px] text-rose-800 leading-relaxed font-semibold">
+                    Seluruh riwayat sesi ujian, lembar jawaban, dan data nilai (*nilai*) siswa terpilih akan <strong>dihapus secara permanen</strong> dari database Supabase secara otomatis (*on delete cascade*).
+                  </p>
+                </div>
               </div>
 
               <div className="max-h-40 overflow-y-auto bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-1.5">

@@ -47,9 +47,16 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   student_no_prefix TEXT NOT NULL DEFAULT '26-01-0104-',
   default_kkm NUMERIC(5,2) NOT NULL DEFAULT 75,
   city_signature TEXT NOT NULL DEFAULT 'Jakarta',
+  enable_alert_student_enter BOOLEAN NOT NULL DEFAULT TRUE,
+  enable_alert_student_completed BOOLEAN NOT NULL DEFAULT TRUE,
+  enable_alert_student_tab_switch BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS enable_alert_student_enter BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS enable_alert_student_completed BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS enable_alert_student_tab_switch BOOLEAN NOT NULL DEFAULT TRUE;
 
 DROP TRIGGER IF EXISTS trg_app_settings_updated_at ON public.app_settings;
 CREATE TRIGGER trg_app_settings_updated_at
@@ -157,7 +164,10 @@ CREATE TABLE IF NOT EXISTS public.exams (
   status TEXT NOT NULL CHECK (status IN ('active', 'draft', 'closed')) DEFAULT 'active',
   passing_score NUMERIC(5,2) NOT NULL DEFAULT 75,
   show_explanation_after_submit BOOLEAN NOT NULL DEFAULT TRUE,
+  min_half_duration_submit BOOLEAN NOT NULL DEFAULT FALSE,
   instructions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source_exam_id TEXT,
+  bank_soal_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -165,6 +175,9 @@ CREATE TABLE IF NOT EXISTS public.exams (
 ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS exam_date TEXT;
 ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS start_time TEXT;
 ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS end_time TEXT;
+ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS min_half_duration_submit BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS source_exam_id TEXT;
+ALTER TABLE public.exams ADD COLUMN IF NOT EXISTS bank_soal_name TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_exams_status ON public.exams (status);
 CREATE INDEX IF NOT EXISTS idx_exams_kelas_target ON public.exams (kelas_target);

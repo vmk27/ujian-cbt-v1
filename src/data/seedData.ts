@@ -15,6 +15,9 @@ export const INITIAL_APP_SETTINGS: AppSettings = {
   studentNoPrefix: '26-01-0104-',
   defaultKkm: 75,
   citySignature: 'Ciamis',
+  enableAlertStudentEnter: true,
+  enableAlertStudentCompleted: true,
+  enableAlertStudentTabSwitch: true,
 };
 
 export const INITIAL_CLASSES: ClassRoom[] = [

@@ -384,12 +384,12 @@ export const GradeReportTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Control Panel (Hidden when printing) */}
-      <div className="print:hidden bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-5">
+      <div className="print:hidden bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs space-y-5">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
             <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-indigo-600" />
-              <h2 className="text-lg font-bold text-slate-900">
+              <FileText className="w-5 h-5 text-indigo-600 shrink-0" />
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">
                 Cetak & Ekspor Laporan Nilai Siswa
               </h2>
             </div>
@@ -398,36 +398,36 @@ export const GradeReportTab: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handleExportCSV}
-              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              Ekspor CSV / Excel
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>Ekspor CSV / Excel</span>
             </button>
             <button
               type="button"
               onClick={handleDownloadPrintableReport}
-              className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer"
             >
-              <Download className="w-4 h-4" />
-              Unduh Dokumen Cetak (.HTML)
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Unduh Dokumen (.HTML)</span>
             </button>
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
             >
-              <Printer className="w-4 h-4" />
-              Cetak Laporan Nilai ({reportRows.length} Baris)
+              <Printer className="w-4 h-4 shrink-0" />
+              <span>Cetak Laporan ({reportRows.length})</span>
             </button>
           </div>
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
               Pilih Paket Ujian
@@ -526,12 +526,12 @@ export const GradeReportTab: React.FC = () => {
       {/* ========================================================================== */}
       {/* PRINTABLE GRADE REPORT SHEET                                               */}
       {/* ========================================================================== */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs print:border-0 print:shadow-none print:p-0 space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-6 shadow-xs print:border-0 print:shadow-none print:p-0 space-y-6">
         {/* Official School Header (Kop Laporan) */}
         <div className="border-b-2 border-slate-900 pb-4 text-center space-y-1">
           <div className="flex items-center justify-center gap-2.5">
-            <Building2 className="w-6 h-6 text-slate-900" />
-            <h1 className="text-lg font-extrabold uppercase tracking-wide text-slate-900">
+            <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-slate-900 shrink-0" />
+            <h1 className="text-base sm:text-lg font-extrabold uppercase tracking-wide text-slate-900">
               {appSettings.schoolName}
             </h1>
           </div>
@@ -545,9 +545,9 @@ export const GradeReportTab: React.FC = () => {
         </div>
 
         {/* Report Title & Summary Strip */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 rounded-xl p-3.5 sm:p-4 border border-slate-200">
           <div>
-            <h2 className="text-sm font-extrabold uppercase text-slate-900">
+            <h2 className="text-xs sm:text-sm font-extrabold uppercase text-slate-900">
               LAPORAN DAFTAR NILAI HASIL UJIAN SISWA
             </h2>
             <p className="text-xs text-slate-600 mt-0.5">
@@ -560,7 +560,7 @@ export const GradeReportTab: React.FC = () => {
               • Kelas: <strong>{classFilter === 'ALL' ? 'Semua Kelas' : classFilter}</strong>
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
             <span className="px-3 py-1 rounded-lg bg-white border border-slate-200 font-semibold text-slate-700">
               Rata-Rata: <strong>{summary.avg}</strong>
             </span>
@@ -574,8 +574,8 @@ export const GradeReportTab: React.FC = () => {
         </div>
 
         {/* Grade Report Table */}
-        <div className="overflow-x-auto border border-slate-300 rounded-xl">
-          <table className="w-full text-left border-collapse text-xs">
+        <div className="overflow-x-auto w-full border border-slate-300 rounded-xl">
+          <table className="w-full min-w-[740px] text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 border-b border-slate-300 text-[11px] font-extrabold text-slate-700 uppercase tracking-wider">
                 <th className="py-3 px-3 text-center w-14 border-r border-slate-200">

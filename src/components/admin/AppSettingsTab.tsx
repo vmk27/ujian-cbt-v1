@@ -8,6 +8,8 @@ import {
   Database,
   Award,
   CreditCard,
+  Bell,
+  ShieldAlert,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import { INITIAL_APP_SETTINGS } from '../../data/seedData';
@@ -338,6 +340,100 @@ export const AppSettingsTab: React.FC = () => {
               <Save className="w-4 h-4" />
               Simpan Perubahan
             </button>
+          </div>
+        </div>
+
+        {/* Card 3: Pengaturan Notifikasi Peringatan & Integritas Ujian */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-5 lg:col-span-2">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Bell className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900">
+              3. Pengaturan Notifikasi Peringatan & Integritas Ujian Siswa
+            </h3>
+          </div>
+
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Aktifkan atau nonaktifkan notifikasi pop-up peringatan realtime yang muncul pada layar Proktor / Admin saat siswa melaksanakan ujian di dalam ruang ujian virtual. Pengaturan ini tersimpan di tabel <code className="font-mono text-slate-800">public.app_settings</code>.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+            {/* Enter Alert */}
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white transition-colors flex flex-col justify-between space-y-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Siswa Masuk Ujian
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Kirim notifikasi ke proktor saat siswa baru mulai login dan memasuki ruang ujian.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.enableAlertStudentEnter}
+                  onChange={(e) => setForm({ ...form, enableAlertStudentEnter: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-xs font-bold text-slate-800">
+                  {form.enableAlertStudentEnter ? 'Aktif (Kirim)' : 'Nonaktif'}
+                </span>
+              </label>
+            </div>
+
+            {/* Completed Alert */}
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white transition-colors flex flex-col justify-between space-y-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Siswa Selesai Ujian
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Kirim notifikasi ke proktor saat siswa menekan tombol "Selesai" dan mengumpulkan jawaban.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.enableAlertStudentCompleted}
+                  onChange={(e) => setForm({ ...form, enableAlertStudentCompleted: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-xs font-bold text-slate-800">
+                  {form.enableAlertStudentCompleted ? 'Aktif (Kirim)' : 'Nonaktif'}
+                </span>
+              </label>
+            </div>
+
+            {/* Tab Switch Alert */}
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white transition-colors flex flex-col justify-between space-y-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Siswa Pindah Tab
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Kirim peringatan pelanggaran keamanan saat siswa keluar dari tab browser ujian.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.enableAlertStudentTabSwitch}
+                  onChange={(e) => setForm({ ...form, enableAlertStudentTabSwitch: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-xs font-bold text-slate-800">
+                  {form.enableAlertStudentTabSwitch ? 'Aktif (Kirim)' : 'Nonaktif'}
+                </span>
+              </label>
+            </div>
           </div>
         </div>
       </form>

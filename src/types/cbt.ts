@@ -31,6 +31,9 @@ export interface AppSettings {
   studentNoPrefix: string; // e.g., '26-01-0104-'
   defaultKkm: number; // e.g., 75
   citySignature: string; // e.g., 'Jakarta'
+  enableAlertStudentEnter: boolean;
+  enableAlertStudentCompleted: boolean;
+  enableAlertStudentTabSwitch: boolean;
 }
 
 export interface UserAccount {
@@ -84,7 +87,10 @@ export interface ExamPackage {
   status: ExamStatus;
   passingScore: number; // KKM (0-100)
   showExplanationAfterSubmit: boolean;
+  minHalfDurationSubmitRequired?: boolean; // Pengaturan ON/OFF agar siswa tidak diperbolehkan selesai ujian sebelum 1/2 durasi waktu berjalan
   instructions: string[];
+  sourceExamId?: string; // Referensi ID paket ujian sebelumnya atau '__TOPIC__' untuk penggunaan Bank Soal bersama lintas paket/jadwal
+  bankSoalName?: string; // Nama Kelompok Bank Soal / Topik yang digunakan oleh paket & jadwal ujian ini
   createdAt: string;
 }
 
@@ -105,6 +111,21 @@ export interface RealtimeLogEntry {
   timestamp: string;
   description: string;
   recordId?: string;
+}
+
+export interface ProctorAlert {
+  id: string;
+  type: 'tab_switch' | 'student_enter' | 'student_completed' | 'student_timeout';
+  title: string;
+  message: string;
+  studentName: string;
+  studentKelas: string;
+  studentNomorPeserta: string;
+  examCode: string;
+  sessionId: string;
+  timestamp: string;
+  tabSwitchCount?: number;
+  score?: number;
 }
 
 export interface ExamSession {

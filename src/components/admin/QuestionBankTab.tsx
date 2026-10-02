@@ -19,8 +19,10 @@ import {
   Loader2,
   ExternalLink,
   Layers,
+  Link2,
+  Copy,
 } from 'lucide-react';
-import { useCBT } from '../../context/CBTContext';
+import { resolveRootBankExamId, useCBT } from '../../context/CBTContext';
 import {
   buildExamBankSoalFolder,
   supabaseService,
@@ -104,11 +106,13 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
   const {
     currentUser,
     exams,
+    questions,
     getQuestionsByExam,
     addQuestion,
     bulkAddQuestions,
     updateQuestion,
     deleteQuestion,
+    cloneQuestionsFromBankToExam,
     updateExam,
     showToast,
   } = useCBT();
@@ -183,6 +187,192 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
   );
   const [bulkParseError, setBulkParseError] = useState<string | null>(null);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Reusable Bank Soal Modal State
+  const [reuseBankModalOpen, setReuseBankModalOpen] = useState(false);
+  const [reuseSourceType, setReuseSourceType] = useState<'exam' | 'topic'>('exam');
+  const [reuseSourceExamId, setReuseSourceExamId] = useState<string>('');
+  const [reuseSourceTopic, setReuseSourceTopic] = useState<string>('ALL');
+  const [reuseActionMode, setReuseActionMode] = useState<'link' | 'copy_append' | 'copy_replace'>('link');
+
+  // Unique Topics across all questions in the database
+  const allGlobalTopics = useMemo(() => {
+    const map = new Map<string, number>();
+    const seenIds = new Set<string>();
+    for (const q of questions) {
+      if (seenIds.has(q.id)) continue;
+      seenIds.add(q.id);
+      const t = (q.topic || '').trim();
+      if (!t) continue;
+      map.set(t, (map.get(t) || 0) + 1);
+    }
+    return Array.from(map.entries()).map(([topic, count]) => ({ topic, count }));
+  }, [questions]);
+
+  // Topics inside the selected reuseSourceExamId
+  const reuseExamTopics = useMemo(() => {
+    if (!reuseSourceExamId) return [];
+    const qs = getQuestionsByExam(reuseSourceExamId);
+    const map = new Map<string, number>();
+    for (const q of qs) {
+      const t = (q.topic || '').trim();
+      if (!t) continue;
+      map.set(t, (map.get(t) || 0) + 1);
+    }
+    return Array.from(map.entries()).map(([topic, count]) => ({ topic, count }));
+  }, [reuseSourceExamId, getQuestionsByExam]);
+
+  // Detect shared bank relationships for activeExam
+  const sharedBankInfo = useMemo(() => {
+    if (!activeExam) return null;
+    const rootId = resolveRootBankExamId(activeExam.id, exams);
+    const isLinkedToTopic =
+      activeExam.sourceExamId === '__TOPIC__' && Boolean(activeExam.bankSoalName);
+    const isLinkedToOtherExam =
+      Boolean(activeExam.sourceExamId) &&
+      activeExam.sourceExamId !== '__TOPIC__' &&
+      activeExam.sourceExamId !== activeExam.id;
+    const sourceExamObj = isLinkedToOtherExam
+      ? exams.find((e) => e.id === activeExam.sourceExamId) ||
+        exams.find((e) => e.id === rootId)
+      : null;
+
+    // Other exams sharing the same root bank or referencing this exam
+    const otherSharingExams = exams.filter((e) => {
+      if (e.id === activeExam.id) return false;
+      if (isLinkedToTopic) {
+        return (
+          e.sourceExamId === '__TOPIC__' &&
+          e.bankSoalName === activeExam.bankSoalName
+        );
+      }
+      return resolveRootBankExamId(e.id, exams) === rootId;
+    });
+
+    return {
+      rootId,
+      isLinkedToTopic,
+      isLinkedToOtherExam,
+      sourceExamObj,
+      otherSharingExams,
+    };
+  }, [activeExam, exams]);
+
+  const openReuseBankModal = () => {
+    if (!activeExam) return;
+    const otherExams = exams.filter((e) => e.id !== activeExam.id);
+    if (activeExam.sourceExamId === '__TOPIC__' && activeExam.bankSoalName) {
+      setReuseSourceType('topic');
+      setReuseSourceTopic(activeExam.bankSoalName);
+      setReuseSourceExamId(otherExams[0]?.id || '');
+      setReuseActionMode('link');
+    } else if (
+      activeExam.sourceExamId &&
+      activeExam.sourceExamId !== activeExam.id
+    ) {
+      setReuseSourceType('exam');
+      setReuseSourceExamId(activeExam.sourceExamId);
+      setReuseSourceTopic(activeExam.bankSoalName || 'ALL');
+      setReuseActionMode('link');
+    } else {
+      setReuseSourceType('exam');
+      setReuseSourceExamId(otherExams[0]?.id || '');
+      setReuseSourceTopic('ALL');
+      setReuseActionMode('link');
+    }
+    setReuseBankModalOpen(true);
+  };
+
+  const handleApplyReuseBank = () => {
+    if (!activeExam) return;
+
+    if (reuseSourceType === 'exam') {
+      if (!reuseSourceExamId) {
+        showToast(
+          'Pilih Paket Sumber',
+          'Silakan pilih paket ujian sebelumnya sebagai sumber bank soal.',
+          'warning'
+        );
+        return;
+      }
+      const topicFilter =
+        reuseSourceTopic && reuseSourceTopic !== 'ALL'
+          ? reuseSourceTopic
+          : undefined;
+      const sourceEx = exams.find((e) => e.id === reuseSourceExamId);
+
+      if (reuseActionMode === 'link') {
+        updateExam(activeExam.id, {
+          sourceExamId: reuseSourceExamId,
+          bankSoalName: topicFilter || '',
+        });
+        showToast(
+          'Bank Soal Bersama Terhubung',
+          `Paket [${activeExam.code}] kini berbagi bank soal dengan [${sourceEx?.code || reuseSourceExamId}]${topicFilter ? ` (Topik: ${topicFilter})` : ''}.`,
+          'success'
+        );
+      } else {
+        const mode = reuseActionMode === 'copy_replace' ? 'replace' : 'append';
+        if (mode === 'replace') {
+          updateExam(activeExam.id, {
+            sourceExamId: '',
+            bankSoalName: topicFilter || '',
+          });
+        }
+        const copied = cloneQuestionsFromBankToExam(activeExam.id, {
+          sourceExamId: reuseSourceExamId,
+          topicFilter,
+          mode,
+        });
+        if (copied === 0) {
+          showToast(
+            'Sumber Bank Soal Kosong',
+            'Tidak ditemukan butir soal pada sumber yang dipilih.',
+            'warning'
+          );
+          return;
+        }
+      }
+    } else {
+      const chosenTopic =
+        reuseSourceTopic === 'ALL'
+          ? allGlobalTopics[0]?.topic || ''
+          : reuseSourceTopic;
+      if (!chosenTopic) {
+        showToast(
+          'Pilih Kelompok Topik',
+          'Silakan pilih kelompok bank soal / topik yang tersedia.',
+          'warning'
+        );
+        return;
+      }
+      if (reuseActionMode === 'link') {
+        updateExam(activeExam.id, {
+          sourceExamId: '__TOPIC__',
+          bankSoalName: chosenTopic,
+        });
+        showToast(
+          'Terhubung ke Topik Bank Soal',
+          `Paket [${activeExam.code}] kini menggunakan seluruh soal dengan topik "${chosenTopic}".`,
+          'success'
+        );
+      } else {
+        const mode = reuseActionMode === 'copy_replace' ? 'replace' : 'append';
+        if (mode === 'replace') {
+          updateExam(activeExam.id, {
+            sourceExamId: '',
+            bankSoalName: chosenTopic,
+          });
+        }
+        cloneQuestionsFromBankToExam(activeExam.id, {
+          topicFilter: chosenTopic,
+          mode,
+        });
+      }
+    }
+
+    setReuseBankModalOpen(false);
+  };
 
   // Unique Bank Soal / Topics inside this Exam Package
   const bankTopics = useMemo(() => {
@@ -1012,9 +1202,9 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
       />
 
       {/* Top Filter, Paket Ujian Selector, Auto-Folder Info & Action Buttons */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1">
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
                 Paket Ujian Aktif
@@ -1025,7 +1215,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                   onSelectExamId(e.target.value);
                   setSelectedBankTopic('ALL');
                 }}
-                className="px-3.5 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 {exams.map((ex) => (
                   <option key={ex.id} value={ex.id}>
@@ -1038,12 +1228,12 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
 
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                Filter Kelompok Bank Soal / Topik
+                Filter Kelompok Bank Soal
               </label>
               <select
                 value={selectedBankTopic}
                 onChange={(e) => setSelectedBankTopic(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 <option value="ALL">
                   Semua Bank Soal ({currentExamQuestions.length} Butir)
@@ -1067,7 +1257,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                     e.target.value as 'ALL' | QuestionType
                   )
                 }
-                className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
               >
                 <option value="ALL">
                   Semua Jenis ({currentExamQuestions.length})
@@ -1079,7 +1269,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
               </select>
             </div>
 
-            <div className="flex-1 min-w-[200px]">
+            <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
                 Cari Isi Soal / Nomor
               </label>
@@ -1089,14 +1279,24 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Ketik kata kunci pertanyaan atau topik..."
+                  placeholder="Ketik kata kunci atau topik..."
                   className="w-full pl-8 pr-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2 pt-2 xl:pt-0 border-t xl:border-t-0 border-slate-100">
+            <button
+              type="button"
+              onClick={openReuseBankModal}
+              className="px-3.5 py-2.5 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors"
+              title="Gunakan atau salin bank soal dari paket ujian sebelumnya / kelompok topik lintas jadwal"
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-700" />
+              <span>Gunakan Bank Soal Sebelumnya</span>
+            </button>
+
             <button
               type="button"
               onClick={handleDownloadCsvTemplate}
@@ -1194,6 +1394,103 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
             <span>Dengan Foto: {questionsWithPhotosCount} Soal</span>
           </div>
         </div>
+
+        {/* Status Bar Bank Soal Bersama (Multi-Paket & Lintas Jadwal) */}
+        {activeExam &&
+          sharedBankInfo &&
+          (sharedBankInfo.isLinkedToOtherExam ||
+            sharedBankInfo.isLinkedToTopic ||
+            sharedBankInfo.otherSharingExams.length > 0) && (
+            <div className="p-3.5 rounded-xl bg-indigo-50/90 border border-indigo-200 flex flex-wrap items-center justify-between gap-3 text-xs text-indigo-950">
+              <div className="flex items-start sm:items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                  <Link2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-bold text-indigo-950 flex flex-wrap items-center gap-1.5">
+                    <span>Mode Bank Soal Bersama (Lintas Paket & Jadwal Ujian)</span>
+                    {activeExam.bankSoalName && (
+                      <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-300 font-mono text-[10px]">
+                        Topik: {activeExam.bankSoalName}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-indigo-800 mt-0.5">
+                    {sharedBankInfo.isLinkedToTopic ? (
+                      <>
+                        Paket <strong>[{activeExam.code}]</strong> terhubung secara
+                        dinamis ke seluruh butir soal bertopik{' '}
+                        <strong>"{activeExam.bankSoalName}"</strong>.
+                      </>
+                    ) : sharedBankInfo.isLinkedToOtherExam &&
+                      sharedBankInfo.sourceExamObj ? (
+                      <>
+                        Paket <strong>[{activeExam.code}]</strong> menggunakan
+                        bank soal dari paket{' '}
+                        <strong>
+                          [{sharedBankInfo.sourceExamObj.code}]{' '}
+                          {sharedBankInfo.sourceExamObj.title}
+                        </strong>
+                        . Penambahan atau perubahan soal otomatis tersinkronisasi.
+                      </>
+                    ) : (
+                      <>
+                        Bank soal paket <strong>[{activeExam.code}]</strong> juga
+                        digunakan bersama oleh jadwal ujian:{' '}
+                        <strong>
+                          {sharedBankInfo.otherSharingExams
+                            .map((e) => `[${e.code}]`)
+                            .join(', ')}
+                        </strong>
+                        .
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openReuseBankModal}
+                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-100 text-indigo-800 border border-indigo-300 font-bold text-[11px] cursor-pointer transition-colors"
+                >
+                  Atur Sumber Bank Soal
+                </button>
+                {(sharedBankInfo.isLinkedToOtherExam ||
+                  sharedBankInfo.isLinkedToTopic) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Putuskan tautan dan salin soal agar mandiri jika diinginkan, atau lepas tautan
+                      const cloned = cloneQuestionsFromBankToExam(activeExam.id, {
+                        sourceExamId:
+                          sharedBankInfo.isLinkedToOtherExam
+                            ? activeExam.sourceExamId
+                            : undefined,
+                        topicFilter: activeExam.bankSoalName || undefined,
+                        mode: 'replace',
+                      });
+                      updateExam(activeExam.id, {
+                        sourceExamId: '',
+                        bankSoalName: '',
+                      });
+                      showToast(
+                        'Bank Soal Dipisahkan (Mandiri)',
+                        `Tautan bersama dilepas dan ${cloned} butir soal disalin menjadi milik mandiri paket [${activeExam.code}].`,
+                        'info'
+                      );
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-[11px] cursor-pointer transition-colors flex items-center gap-1"
+                    title="Pisahkan dari bank soal bersama dengan menduplikasi soal ke paket ini secara mandiri"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Jadikan Mandiri (Salin Soal)</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
       </div>
 
       {/* Question Cards List */}
@@ -1208,7 +1505,15 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
             Editor & Upload Foto) atau <strong>Bulk Upload Soal</strong> untuk
             mengimpor banyak soal sekaligus ke paket ujian ini.
           </p>
-          <div className="pt-2 flex items-center justify-center gap-3">
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={openReuseBankModal}
+              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Gunakan Bank Soal Sebelumnya</span>
+            </button>
             <button
               type="button"
               onClick={openBulkUploadModal}
@@ -1232,7 +1537,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
           {filteredQuestions.map((q) => (
             <div
               key={q.id}
-              className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4"
+              className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-2xs space-y-4"
             >
               {/* Card Header */}
               <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
@@ -1314,9 +1619,9 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
               {q.imageUrl && (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <div className="flex items-center gap-1.5 font-mono">
-                      <FolderOpen className="w-3.5 h-3.5 text-blue-600" />
-                      <span>
+                    <div className="flex items-start sm:items-center gap-1.5 font-mono min-w-0">
+                      <FolderOpen className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5 sm:mt-0" />
+                      <span className="break-all">
                         {q.storagePath ||
                           `app-file/${buildExamBankSoalFolder({
                             examCode: activeExam?.code || 'ujian',
@@ -1428,23 +1733,23 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
 
       {/* ==================== MODAL 1: CREATE / EDIT QUESTION (RICH TEXT & SUPABASE PHOTO UPLOAD) ==================== */}
       {questionModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-xl border border-slate-200 max-w-3xl w-full max-h-[92vh] flex flex-col shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
-              <div>
-                <h3 className="font-bold text-slate-900 text-base">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
                   {editingQuestion
                     ? `Edit Butir Soal #${editingQuestion.number} (Rich Text & Dokumen Foto)`
                     : 'Tambah Butir Soal Baru (Rich Text & Dokumen Foto)'}
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 truncate">
                   Paket Ujian: <strong>[{activeExam?.code}] {activeExam?.title}</strong>
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setQuestionModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1452,7 +1757,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
 
             <form
               onSubmit={handleSaveQuestion}
-              className="p-6 overflow-y-auto space-y-5 text-xs"
+              className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs"
             >
               {/* Pilihan Jenis Soal (Pilihan Ganda atau Esai) */}
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
@@ -1578,7 +1883,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1.5">
                       <span>Folder otomatis:</span>
-                      <code className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-blue-700">
+                      <code className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-blue-700 break-all">
                         app-file/{activeModalFolderPath}/
                       </code>
                     </div>
@@ -1805,17 +2110,17 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                 />
               </div>
 
-              <div className="pt-3 flex justify-end gap-3 border-t border-slate-200">
+              <div className="pt-3 flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setQuestionModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white font-bold text-slate-700 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-300 bg-white font-bold text-slate-700 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold cursor-pointer"
                 >
                   Simpan Butir Soal
                 </button>
@@ -1827,14 +2132,14 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
 
       {/* ==================== MODAL 2: BULK UPLOAD SOAL (CSV / EXCEL / JSON + PHOTO UPLOAD PER ROW) ==================== */}
       {bulkModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-xl border border-slate-200 max-w-5xl w-full max-h-[92vh] flex flex-col shadow-xl overflow-hidden">
             {/* Modal Header */}
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
-              <div>
-                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-emerald-600" />
-                  <span>
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span className="truncate">
                     Bulk Upload Soal & Lampiran Dokumen Foto (Paket:{' '}
                     {activeExam?.code})
                   </span>
@@ -1848,14 +2153,14 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
               <button
                 type="button"
                 onClick={() => setBulkModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-5 text-xs">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs">
               {/* Target Paket Ujian & Nama Bank Soal Folder Configuration */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div>
@@ -1902,8 +2207,8 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
               </div>
 
               {/* Input Method Selector Tabs */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg border border-slate-200">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg border border-slate-200">
                   <button
                     type="button"
                     onClick={() => setBulkInputTab('csv')}
@@ -2070,8 +2375,8 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                   </div>
 
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="overflow-x-auto max-h-80">
-                      <table className="w-full text-left border-collapse">
+                    <div className="overflow-x-auto w-full max-h-80">
+                      <table className="w-full min-w-[820px] text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                             <th className="py-2.5 px-3 w-10">#</th>
@@ -2298,18 +2603,18 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
-              <div className="text-xs text-slate-500">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className="text-xs text-slate-500 truncate">
                 Target Paket Ujian:{' '}
                 <strong className="text-slate-800">
                   [{activeExam?.code}] {activeExam?.title}
                 </strong>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => setBulkModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-700 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-700 cursor-pointer"
                 >
                   Batal
                 </button>
@@ -2317,15 +2622,271 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({
                   type="button"
                   disabled={parsedBulkItems.length === 0}
                   onClick={handleConfirmBulkImport}
-                  className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-2 cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>
                     Simpan & Impor {parsedBulkItems.length} Butir Soal ke
                     Database
                   </span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gunakan Bank Soal Sebelumnya (Shared / Copy Bank Soal) */}
+      {reuseBankModalOpen && activeExam && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-xl w-full p-4 sm:p-6 shadow-xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Gunakan Bank Soal Sebelumnya
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Target Paket Aktif:{' '}
+                    <strong className="text-slate-800">
+                      [{activeExam.code}] {activeExam.title}
+                    </strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReuseBankModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Pilih Jenis Sumber */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  1. Pilih Sumber Bank Soal
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReuseSourceType('exam');
+                      setReuseSourceTopic('ALL');
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      reuseSourceType === 'exam'
+                        ? 'bg-indigo-50 border-indigo-600 ring-2 ring-indigo-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-slate-900">
+                      Dari Paket Ujian Sebelumnya
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Gunakan soal dari jadwal/paket ujian lain (misal Susulan,
+                      Sesi 2, atau Kelas Berbeda).
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReuseSourceType('topic');
+                      if (
+                        reuseSourceTopic === 'ALL' &&
+                        allGlobalTopics.length > 0
+                      ) {
+                        setReuseSourceTopic(allGlobalTopics[0].topic);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      reuseSourceType === 'topic'
+                        ? 'bg-indigo-50 border-indigo-600 ring-2 ring-indigo-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-slate-900">
+                      Berdasarkan Kelompok Topik Soal
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Ambil seluruh butir soal dari nama kelompok Bank Soal /
+                      Topik tertentu di database.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {reuseSourceType === 'exam' ? (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Pilih Paket Ujian Sumber
+                    </label>
+                    <select
+                      value={reuseSourceExamId}
+                      onChange={(e) => {
+                        setReuseSourceExamId(e.target.value);
+                        setReuseSourceTopic('ALL');
+                      }}
+                      className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-900"
+                    >
+                      <option value="">-- Pilih Paket Ujian --</option>
+                      {exams
+                        .filter((ex) => ex.id !== activeExam.id)
+                        .map((ex) => {
+                          const cnt = getQuestionsByExam(ex.id).length;
+                          return (
+                            <option key={ex.id} value={ex.id}>
+                              [{ex.code}] {ex.title} — {ex.subject} ({cnt} Soal)
+                            </option>
+                          );
+                        })}
+                    </select>
+                  </div>
+
+                  {reuseSourceExamId && reuseExamTopics.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Filter Kelompok Topik (Opsional)
+                      </label>
+                      <select
+                        value={reuseSourceTopic}
+                        onChange={(e) => setReuseSourceTopic(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-900"
+                      >
+                        <option value="ALL">
+                          Semua Topik pada Paket Sumber (
+                          {getQuestionsByExam(reuseSourceExamId).length} Soal)
+                        </option>
+                        {reuseExamTopics.map((item) => (
+                          <option key={item.topic} value={item.topic}>
+                            Topik: {item.topic} ({item.count} Soal)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Pilih Kelompok Bank Soal / Topik
+                  </label>
+                  <select
+                    value={reuseSourceTopic}
+                    onChange={(e) => setReuseSourceTopic(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-900"
+                  >
+                    {allGlobalTopics.length === 0 ? (
+                      <option value="">Belum ada topik bank soal</option>
+                    ) : (
+                      allGlobalTopics.map((item) => (
+                        <option key={item.topic} value={item.topic}>
+                          {item.topic} ({item.count} Butir Soal)
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
+
+              {/* Pilih Metode Penggunaan */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  2. Metode Penggunaan Bank Soal
+                </label>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setReuseActionMode('link')}
+                    className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                      reuseActionMode === 'link'
+                        ? 'bg-indigo-50/90 border-indigo-600 ring-2 ring-indigo-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Link2 className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">
+                        Hubungkan sebagai Bank Soal Bersama (Direkomendasikan)
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Tidak menduplikasi baris database. Satu bank soal dipakai
+                        bersama oleh beberapa paket/jadwal ujian. Jika soal
+                        diedit atau ditambah, semua jadwal ujian yang terhubung
+                        otomatis diperbarui.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReuseActionMode('copy_append')}
+                    className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                      reuseActionMode === 'copy_append'
+                        ? 'bg-indigo-50/90 border-indigo-600 ring-2 ring-indigo-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Copy className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">
+                        Salin & Tambahkan ke Paket Ini (Append Mandiri)
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Menduplikasi soal dari sumber dan menambahkannya ke
+                        daftar soal paket [{activeExam.code}] sehingga dapat
+                        diubah secara terpisah.
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setReuseActionMode('copy_replace')}
+                    className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                      reuseActionMode === 'copy_replace'
+                        ? 'bg-indigo-50/90 border-indigo-600 ring-2 ring-indigo-500/20'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Copy className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">
+                        Salin & Ganti Seluruh Soal Paket Ini (Replace Mandiri)
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Mengganti soal lama pada paket [{activeExam.code}] dengan
+                        salinan baru dari bank soal yang dipilih.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReuseBankModalOpen(false)}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyReuseBank}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>Terapkan Bank Soal</span>
+              </button>
             </div>
           </div>
         </div>

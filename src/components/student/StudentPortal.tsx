@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Calendar,
   UploadCloud,
+  ChevronDown,
 } from 'lucide-react';
 import { useCBT } from '../../context/CBTContext';
 import { ExamPackage } from '../../types/cbt';
@@ -38,6 +39,7 @@ export const StudentPortal: React.FC = () => {
   } = useCBT();
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [selectedExamForToken, setSelectedExamForToken] = useState<ExamPackage | null>(
     null
   );
@@ -159,20 +161,70 @@ export const StudentPortal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-bold text-slate-900">{currentUser.name}</div>
-              <div className="text-xs font-mono text-slate-500">
-                {currentUser.nomorPeserta} • {currentUser.kelas}
-              </div>
+            {/* Profile Dropdown Menu */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                className="flex items-center gap-2.5 p-1 px-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer"
+                aria-label="Menu Profil Siswa"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#1D4ED8] text-white font-extrabold text-sm flex items-center justify-center shrink-0 uppercase">
+                  {currentUser.name.slice(0, 2)}
+                </div>
+                <div className="text-left hidden sm:block">
+                  <div className="text-xs font-extrabold text-slate-800 leading-tight">
+                    {currentUser.name}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono font-medium leading-none mt-0.5">
+                    {currentUser.nomorPeserta} • {currentUser.kelas}
+                  </div>
+                </div>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              </button>
+
+              {profileDropdownOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-30" 
+                    onClick={() => setProfileDropdownOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-3 shadow-lg z-40 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="px-2 py-1.5 border-b border-slate-100 mb-2">
+                      <div className="font-extrabold text-slate-900 text-sm truncate">
+                        {currentUser.name}
+                      </div>
+                      <div className="text-xs text-slate-500 font-mono mt-0.5">
+                        NISN: {currentUser.username}
+                      </div>
+                      <div className="text-xs text-slate-500 font-mono mt-0.5">
+                        No. Peserta: {currentUser.nomorPeserta}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 border border-emerald-200 text-emerald-700">
+                          Kelas {currentUser.kelas}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium truncate">
+                          {currentUser.sekolah}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        logout();
+                      }}
+                      className="w-full px-2.5 py-2 rounded-lg hover:bg-red-50 text-red-600 text-xs font-bold flex items-center gap-2 transition-colors text-left cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4 shrink-0" />
+                      <span>Keluar / Logout</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={logout}
-              className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-700 text-xs font-bold text-slate-700 flex items-center gap-2 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Keluar</span>
-            </button>
           </div>
         </div>
       </header>
@@ -444,9 +496,9 @@ export const StudentPortal: React.FC = () => {
                   </div>
 
                   {/* Card Footer Action */}
-                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+                  <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2 text-xs">
-                      <KeyRound className="w-3.5 h-3.5 text-slate-400" />
+                      <KeyRound className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span className="text-slate-500">Validasi Token Proktor</span>
                     </div>
 
@@ -454,13 +506,13 @@ export const StudentPortal: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setReviewSessionId(mySession.id)}
-                        className={`px-4 py-2.5 rounded-lg text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+                        className={`w-full sm:w-auto px-4 py-2.5 rounded-lg text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
                           exam.showExplanationAfterSubmit
                             ? 'bg-slate-900 hover:bg-slate-800'
                             : 'bg-indigo-900 hover:bg-indigo-800'
                         }`}
                       >
-                        <Eye className="w-4 h-4" />
+                        <Eye className="w-4 h-4 shrink-0" />
                         <span>
                           {exam.showExplanationAfterSubmit
                             ? 'Lihat Nilai & Pembahasan'
@@ -468,7 +520,7 @@ export const StudentPortal: React.FC = () => {
                         </span>
                       </button>
                     ) : isInProgress ? (
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
                         {Object.keys(mySession.answers || {}).length > 0 && (
                           <button
                             type="button"
@@ -479,10 +531,10 @@ export const StudentPortal: React.FC = () => {
                                 setReviewSessionId(done.id);
                               }
                             }}
-                            className="px-3.5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                             title="Kumpulkan jawaban yang sudah tersimpan di perangkat ini dan kirim nilai langsung ke server"
                           >
-                            <UploadCloud className="w-3.5 h-3.5" />
+                            <UploadCloud className="w-3.5 h-3.5 shrink-0" />
                             <span>
                               Kumpulkan & Kirim Nilai (
                               {Object.keys(mySession.answers || {}).length} Terjawab)
@@ -492,9 +544,9 @@ export const StudentPortal: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setActiveSessionId(mySession.id)}
-                          className="px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
+                          className="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                         >
-                          <RotateCcw className="w-4 h-4" />
+                          <RotateCcw className="w-4 h-4 shrink-0" />
                           <span>Lanjutkan Ujian</span>
                         </button>
                       </div>
@@ -503,9 +555,9 @@ export const StudentPortal: React.FC = () => {
                         type="button"
                         disabled={exam.status !== 'active'}
                         onClick={() => handleOpenTokenModal(exam)}
-                        className="px-4 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-2 shadow-2xs transition-colors cursor-pointer"
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-2xs transition-colors cursor-pointer"
                       >
-                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <Play className="w-3.5 h-3.5 fill-current shrink-0" />
                         <span>Kerjakan Ujian</span>
                       </button>
                     )}
@@ -530,16 +582,16 @@ export const StudentPortal: React.FC = () => {
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[680px] text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                       <th className="py-3.5 px-5">Mata Uji & Kode</th>
-                      <th className="py-3.5 px-4">Waktu Selesai</th>
-                      <th className="py-3.5 px-4 text-center">Benar / Salah / Kosong</th>
-                      <th className="py-3.5 px-4 text-center">Nilai Akhir</th>
-                      <th className="py-3.5 px-4 text-center">Status KKM</th>
-                      <th className="py-3.5 px-5 text-right">Aksi</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Waktu Selesai</th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap">Benar / Salah / Kosong</th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap">Nilai Akhir</th>
+                      <th className="py-3.5 px-4 text-center whitespace-nowrap">Status KKM</th>
+                      <th className="py-3.5 px-5 text-right whitespace-nowrap">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-sm">
@@ -557,7 +609,7 @@ export const StudentPortal: React.FC = () => {
                               {ex?.code} • {ex?.subject}
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-xs text-slate-600 tabular-nums">
+                          <td className="py-3.5 px-4 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
                             {ses.submittedAt
                               ? new Date(ses.submittedAt).toLocaleString('id-ID', {
                                   dateStyle: 'medium',
@@ -565,7 +617,7 @@ export const StudentPortal: React.FC = () => {
                                 })
                               : '-'}
                           </td>
-                          <td className="py-3.5 px-4 text-center font-mono text-xs tabular-nums">
+                          <td className="py-3.5 px-4 text-center font-mono text-xs tabular-nums whitespace-nowrap">
                             <span className="text-emerald-700 font-bold">
                               {ses.correctCount}B
                             </span>{' '}
@@ -578,12 +630,12 @@ export const StudentPortal: React.FC = () => {
                               {ses.unansweredCount}K
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 text-center">
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
                             <span className="font-mono font-extrabold text-base text-slate-900 tabular-nums">
                               {ses.score}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 text-center">
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
                             <span
                               className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-bold ${
                                 passed
@@ -594,7 +646,7 @@ export const StudentPortal: React.FC = () => {
                               {passed ? 'TUNTAS (LULUS)' : `REMEDIAL (<${kkm})`}
                             </span>
                           </td>
-                          <td className="py-3.5 px-5 text-right">
+                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => setReviewSessionId(ses.id)}
@@ -626,55 +678,55 @@ export const StudentPortal: React.FC = () => {
 
       {/* Modal 1: Konfirmasi Data Peserta & Input Token Ujian */}
       {selectedExamForToken && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl border border-slate-200 max-w-lg w-full shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-base">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl border border-slate-200 max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <KeyRound className="w-5 h-5 text-blue-600 shrink-0" />
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
                   Konfirmasi Sesi & Validasi Token Ujian
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedExamForToken(null)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleStartExamWithToken} className="p-6 space-y-5">
+            <form onSubmit={handleStartExamWithToken} className="p-4 sm:p-6 overflow-y-auto space-y-5">
               {/* Exam & Student Summary Table */}
-              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
-                <div className="flex justify-between">
+              <div className="p-3.5 sm:p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
                   <span className="text-slate-500">Nama Peserta:</span>
-                  <span className="font-bold text-slate-900">{currentUser.name}</span>
+                  <span className="font-bold text-slate-900 sm:text-right break-words">{currentUser.name}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
                   <span className="text-slate-500">Nomor Peserta / Kelas:</span>
-                  <span className="font-mono font-semibold text-slate-800">
+                  <span className="font-mono font-semibold text-slate-800 sm:text-right">
                     {currentUser.nomorPeserta} ({currentUser.kelas})
                   </span>
                 </div>
-                <div className="flex justify-between pt-2 border-t border-slate-200">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 pt-2 border-t border-slate-200">
                   <span className="text-slate-500">Mata Ujian:</span>
-                  <span className="font-bold text-blue-700">
+                  <span className="font-bold text-blue-700 sm:text-right break-words">
                     {selectedExamForToken.subject}
                   </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
                   <span className="text-slate-500">Jadwal Pelaksanaan:</span>
-                  <span className="font-mono font-semibold text-slate-800">
+                  <span className="font-mono font-semibold text-slate-800 sm:text-right">
                     {selectedExamForToken.examDate || 'Hari Ini'}{' '}
                     {selectedExamForToken.startTime && selectedExamForToken.endTime
                       ? `(${selectedExamForToken.startTime} – ${selectedExamForToken.endTime} WIB)`
                       : ''}
                   </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
                   <span className="text-slate-500">Alokasi Waktu & KKM:</span>
-                  <span className="font-mono font-semibold text-slate-800">
+                  <span className="font-mono font-semibold text-slate-800 sm:text-right">
                     {selectedExamForToken.durationMinutes} Menit • KKM{' '}
                     {selectedExamForToken.passingScore}
                   </span>
@@ -720,20 +772,20 @@ export const StudentPortal: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-2 flex items-center justify-end gap-3">
+              <div className="pt-2 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setSelectedExamForToken(null)}
-                  className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                 >
                   <span>Mulai Kerjakan Sekarang</span>
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-4 h-4 shrink-0" />
                 </button>
               </div>
             </form>
@@ -743,29 +795,29 @@ export const StudentPortal: React.FC = () => {
 
       {/* Modal 2: Pembahasan & Review Hasil Ujian */}
       {reviewSession && reviewExam && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
-              <div>
-                <span className="text-xs font-mono font-bold uppercase text-blue-700">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <span className="text-xs font-mono font-bold uppercase text-blue-700 block truncate">
                   {reviewExam.code} • Hasil Evaluasi CBT
                 </span>
-                <h3 className="font-bold text-slate-900 text-base">
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
                   {reviewExam.title}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setReviewSessionId(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6">
               {/* Score Banner */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div>
                   <div className="text-xs text-slate-500">Nilai Akhir Anda</div>
                   <div className="text-3xl font-mono font-extrabold text-blue-700 tabular-nums mt-0.5">

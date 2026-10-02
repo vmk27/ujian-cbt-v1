@@ -997,56 +997,56 @@ export const ExamCardsTab: React.FC = () => {
         </div>
 
         {/* Action Toolbar */}
-        <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="p-3.5 sm:p-5 bg-slate-50/80 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Navigation Tabs */}
-          <div className="inline-flex p-1 bg-slate-200/80 rounded-2xl border border-slate-300/60">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:inline-flex p-1 bg-slate-200/80 rounded-2xl border border-slate-300/60 gap-1">
             <button
               type="button"
               onClick={() => setActiveTab('preview')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'preview'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <FileText className="w-4 h-4 text-indigo-600" />
+              <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
               <span>Pratinjau Lembar ({targetStudents.length})</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 activeTab === 'settings'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Settings2 className="w-4 h-4 text-blue-600" />
+              <Settings2 className="w-4 h-4 text-blue-600 shrink-0" />
               <span>Pengaturan & Ukuran Presisi</span>
             </button>
           </div>
 
           {/* Primary Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
             {/* Download Data Excel */}
             <button
               type="button"
               onClick={handleDownloadDataExcel}
-              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:shadow-md"
+              className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:shadow-md"
               title="Unduh Data Rekap Kartu Ujian (NISN, Nama, Kelas, Password) dalam format Excel (.xls)"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Unduh Data Excel</span>
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>Data Excel</span>
             </button>
 
             {/* Download Data CSV */}
             <button
               type="button"
               onClick={handleDownloadDataCsv}
-              className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
               title="Unduh Data Kartu Ujian (NISN, Nama, Kelas, Password) dalam format CSV"
             >
-              <FileDown className="w-4 h-4" />
+              <FileDown className="w-4 h-4 shrink-0" />
               <span>Unduh CSV</span>
             </button>
 
@@ -1055,13 +1055,13 @@ export const ExamCardsTab: React.FC = () => {
               type="button"
               disabled={isGeneratingPdf}
               onClick={handleDownloadPdfA4}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:shadow-md"
+              className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:shadow-md"
             >
-              <FileDown className="w-4 h-4" />
+              <FileDown className="w-4 h-4 shrink-0" />
               <span>
                 {isGeneratingPdf
                   ? 'Menyusun PDF...'
-                  : `Unduh PDF A4 (${targetStudents.length} Kartu)`}
+                  : `Unduh PDF A4 (${targetStudents.length})`}
               </span>
             </button>
 
@@ -1069,20 +1069,20 @@ export const ExamCardsTab: React.FC = () => {
             <button
               type="button"
               onClick={handlePrintBrowser}
-              className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:shadow-md"
+              className="inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:shadow-md"
             >
-              <Printer className="w-4 h-4 text-emerald-400" />
-              <span>Cetak Kertas A4</span>
+              <Printer className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Cetak A4</span>
             </button>
 
             {/* Download Standalone HTML */}
             <button
               type="button"
               onClick={handleDownloadPrintableHtml}
-              className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-xs px-3 py-2.5 rounded-xl transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-xs px-3 py-2.5 rounded-xl transition-all cursor-pointer"
               title="Unduh file HTML mandiri siap cetak di browser apa pun"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5 shrink-0" />
               <span>HTML A4</span>
             </button>
           </div>
