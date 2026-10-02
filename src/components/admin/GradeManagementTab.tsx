@@ -76,6 +76,7 @@ export const GradeManagementTab: React.FC = () => {
     syncDeviceSessionsToServer,
     importDeviceSessionsBackup,
     isSyncingSupabase,
+    adminForceSubmitSession,
   } = useCBT();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -92,6 +93,29 @@ export const GradeManagementTab: React.FC = () => {
   const [inspectSessionId, setInspectSessionId] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<ExamSession | null>(null);
   const [manualModalOpen, setManualModalOpen] = useState(false);
+
+  // Pagination & token reset security states
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(10);
+  const [resettingSessionId, setResettingSessionId] = useState<string | null>(null);
+  const [resetTokenInput, setResetTokenInput] = useState<string>('');
+  const [forceSubmitSessionId, setForceSubmitSessionId] = useState<string | null>(null);
+
+  // Whenever filters or query changes, reset to page 1
+  const [prevFilterKey, setPrevFilterKey] = useState('');
+  const currentFilterKey = `${searchQuery}-${filterExamId}-${filterKelas}-${filterStatus}-${sortBy}`;
+  if (currentFilterKey !== prevFilterKey) {
+    setPrevFilterKey(currentFilterKey);
+    setCurrentPage(1);
+  }
+
+  const resettingSession = useMemo(() => {
+    return sessions.find((s) => s.id === resettingSessionId);
+  }, [sessions, resettingSessionId]);
+
+  const resettingExam = useMemo(() => {
+    return exams.find((e) => e.id === resettingSession?.examId);
+  }, [exams, resettingSession]);
 
   // Edit score form
   const [scoreForm, setScoreForm] = useState({
@@ -247,6 +271,19 @@ export const GradeManagementTab: React.FC = () => {
       return b.score - a.score;
     });
   }, [baseFilteredSessions, exams, filterStatus, sortBy]);
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(filteredSessions.length / itemsPerPage) || 1;
+  }, [filteredSessions, itemsPerPage]);
+
+  const validatedPage = useMemo(() => {
+    return currentPage > totalPages ? totalPages : currentPage;
+  }, [currentPage, totalPages]);
+
+  const paginatedSessions = useMemo(() => {
+    const startIdx = (validatedPage - 1) * itemsPerPage;
+    return filteredSessions.slice(startIdx, startIdx + itemsPerPage);
+  }, [filteredSessions, validatedPage, itemsPerPage]);
 
   const completedFiltered = filteredSessions.filter((s) => s.status !== 'in_progress');
   const avgScore =
@@ -711,7 +748,7 @@ export const GradeManagementTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80 text-xs">
-              {filteredSessions.length === 0 ? (
+              {paginatedSessions.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 px-4 text-center">
                     <div className="max-w-sm mx-auto space-y-2">
@@ -743,7 +780,7 @@ export const GradeManagementTab: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredSessions.map((ses, idx) => {
+                paginatedSessions.map((ses, idx) => {
                   const ex = exams.find((e) => e.id === ses.examId);
                   const kkm = ex?.passingScore ?? 75;
                   const isPassed = ses.score >= kkm;
@@ -757,7 +794,7 @@ export const GradeManagementTab: React.FC = () => {
                     >
                       {/* No / Rank */}
                       <td className="py-3 px-4 text-center font-mono font-semibold text-slate-500 tabular-nums whitespace-nowrap">
-                        {idx + 1}
+                        {(validatedPage - 1) * itemsPerPage + idx + 1}
                       </td>
 
                       {/* Peserta Didik */}
@@ -868,6 +905,17 @@ export const GradeManagementTab: React.FC = () => {
                       {/* Tindakan */}
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <div className="inline-flex items-center justify-end gap-1">
+                          {ses.status === 'in_progress' && (
+                            <button
+                              type="button"
+                              onClick={() => setForceSubmitSessionId(ses.id)}
+                              className="px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Paksa kumpulkan ujian siswa ini"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              <span>Paksa Submit</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => setInspectSessionId(ses.id)}
@@ -887,7 +935,10 @@ export const GradeManagementTab: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => resetStudentSession(ses.id)}
+                            onClick={() => {
+                              setResettingSessionId(ses.id);
+                              setResetTokenInput('');
+                            }}
                             className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-200 text-rose-600 transition-colors cursor-pointer"
                             title="Reset Sesi (Ujian Ulang)"
                           >
@@ -903,24 +954,102 @@ export const GradeManagementTab: React.FC = () => {
           </table>
         </div>
 
-        {/* Table Footer Summary */}
-        <div className="px-5 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
-          <div className="tabular-nums">
-            Menampilkan <strong className="font-semibold text-slate-700">{filteredSessions.length}</strong> dari{' '}
-            <strong className="font-semibold text-slate-700">{integratedSessions.length}</strong> data nilai siswa
+        {/* Table Footer Summary & Pagination Controls */}
+        <div className="px-5 py-3.5 bg-slate-50/70 border-t border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="tabular-nums">
+              Menampilkan <strong className="font-semibold text-slate-700">{filteredSessions.length === 0 ? 0 : (validatedPage - 1) * itemsPerPage + 1}-{Math.min(filteredSessions.length, validatedPage * itemsPerPage)}</strong> dari{' '}
+              <strong className="font-semibold text-slate-700">{filteredSessions.length}</strong> data nilai siswa
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span>Tampilkan:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600"
+              >
+                <option value={5}>5 baris</option>
+                <option value={10}>10 baris</option>
+                <option value={25}>25 baris</option>
+                <option value={50}>50 baris</option>
+                <option value={100}>100 baris</option>
+              </select>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
-            <span>
-              Rata-rata filter: <strong className="font-mono font-semibold text-slate-800">{avgScore}</strong>
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>
-              Tuntas: <strong className="font-mono font-semibold text-emerald-700">{passedCount}</strong>
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>
-              Remedial: <strong className="font-mono font-semibold text-rose-600">{remedialCount}</strong>
-            </span>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Stats quick view */}
+            <div className="hidden lg:flex items-center gap-x-2 border-r border-slate-200 pr-3 tabular-nums">
+              <span>
+                Mean: <strong className="font-semibold text-slate-800">{avgScore}</strong>
+              </span>
+              <span aria-hidden="true" className="text-slate-300">·</span>
+              <span>
+                Tuntas: <strong className="font-semibold text-emerald-700">{passedCount}</strong>
+              </span>
+              <span aria-hidden="true" className="text-slate-300">·</span>
+              <span>
+                Remedial: <strong className="font-semibold text-rose-600">{remedialCount}</strong>
+              </span>
+            </div>
+
+            {/* Pagination Buttons */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={validatedPage === 1}
+                  onClick={() => setCurrentPage(validatedPage - 1)}
+                  className="px-2 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-600 hover:text-slate-900 text-xs font-semibold cursor-pointer select-none"
+                >
+                  Sebelumnya
+                </button>
+                
+                {(() => {
+                  const buttons = [];
+                  for (let i = 1; i <= totalPages; i++) {
+                    if (i === 1 || i === totalPages || (i >= validatedPage - 1 && i <= validatedPage + 1)) {
+                      buttons.push(i);
+                    } else if (i === validatedPage - 2 || i === validatedPage + 2) {
+                      buttons.push('...');
+                    }
+                  }
+                  const uniqueButtons = Array.from(new Set(buttons));
+                  return uniqueButtons.map((btn, index) => {
+                    if (btn === '...') {
+                      return <span key={`ellipsis-${index}`} className="px-1.5 text-slate-400">...</span>;
+                    }
+                    return (
+                      <button
+                        key={`page-${btn}`}
+                        type="button"
+                        onClick={() => setCurrentPage(Number(btn))}
+                        className={`w-7 h-7 rounded-lg border text-xs font-semibold flex items-center justify-center cursor-pointer select-none transition-colors ${
+                          validatedPage === btn
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {btn}
+                      </button>
+                    );
+                  });
+                })()}
+
+                <button
+                  type="button"
+                  disabled={validatedPage === totalPages}
+                  onClick={() => setCurrentPage(validatedPage + 1)}
+                  className="px-2 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-600 hover:text-slate-900 text-xs font-semibold cursor-pointer select-none"
+                >
+                  Berikutnya
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1491,6 +1620,171 @@ export const GradeManagementTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal 4: Verifikasi Token untuk Reset Sesi */}
+      {resettingSessionId && resettingSession && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white/95 backdrop-blur-200 rounded-2xl border border-white/80 max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50/80 border-b border-slate-200/80 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-rose-600 shrink-0" />
+                <h3 className="font-semibold text-slate-900 text-sm sm:text-base">
+                  Verifikasi Token untuk Reset Sesi
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResettingSessionId(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200/80 text-rose-950 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-rose-900">
+                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>PERINGATAN TINDAKAN DESKRUKTIF:</span>
+                </div>
+                <p className="text-[11px] text-rose-800 leading-relaxed font-semibold">
+                  Mereset sesi akan menghapus lembar jawaban saat ini. Siswa <strong>{resettingSession.studentName}</strong> harus memulai ulang pengerjaan ujian dari nomor 1.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 text-slate-700 space-y-1.5">
+                <div>
+                  Siswa: <strong className="text-slate-900">{resettingSession.studentName}</strong> ({resettingSession.studentKelas})
+                </div>
+                <div>
+                  Ujian: <strong className="text-slate-900">{resettingExam?.subject || resettingSession.examId}</strong> ({resettingExam?.code})
+                </div>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const targetToken = resettingExam?.token || '';
+                  if (resetTokenInput.trim().toUpperCase() === targetToken.toUpperCase()) {
+                    resetStudentSession(resettingSessionId);
+                    setResettingSessionId(null);
+                  } else {
+                    showToast(
+                      'Token Reset Sesi Salah',
+                      `Token yang Anda masukkan tidak cocok dengan token aktif untuk ujian ini.`,
+                      'error'
+                    );
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1.5 uppercase tracking-wider text-[10px]">
+                    Masukkan Token Ujian Aktif ({resettingExam?.code})
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Masukkan kode token..."
+                    value={resetTokenInput}
+                    onChange={(e) => setResetTokenInput(e.target.value)}
+                    className="w-full px-3.5 py-2.5 font-mono font-bold text-center text-lg bg-white/90 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 uppercase tracking-widest placeholder:tracking-normal placeholder:font-normal placeholder:text-slate-400 shadow-2xs"
+                    autoFocus
+                  />
+                  <div className="mt-1 text-[11px] text-slate-400 text-center">
+                    Petunjuk: Masukkan token aktif yang dipasang untuk paket/jadwal ujian ini.
+                  </div>
+                </div>
+
+                <div className="pt-3 flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 border-t border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => setResettingSessionId(null)}
+                    className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-300 bg-white font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-full sm:w-auto px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold cursor-pointer shadow-xs transition-colors"
+                  >
+                    Verifikasi & Reset Sesi
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 5: Konfirmasi Paksa Submit oleh Admin */}
+      {forceSubmitSessionId && (() => {
+        const targetSes = sessions.find((s) => s.id === forceSubmitSessionId);
+        const targetEx = exams.find((e) => e.id === targetSes?.examId);
+        if (!targetSes) return null;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+            <div className="bg-white/95 backdrop-blur-2xl rounded-2xl border border-white/80 max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+              <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50/80 border-b border-slate-200/80 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                  <h3 className="font-semibold text-slate-900 text-sm sm:text-base">
+                    Konfirmasi Paksa Submit Ujian Siswa
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForceSubmitSessionId(null)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-6 space-y-4 text-xs">
+                <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-950 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>PERHATIAN (TINDAKAN ADMIN):</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed font-semibold">
+                    Anda akan memaksa mengumpulkan lembar jawaban ujian untuk siswa <strong>{targetSes.studentName}</strong> ({targetSes.studentKelas}). Sesi akan diakhiri dan nilai akhir langsung dihitung serta dimasukkan ke database.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 text-slate-700 space-y-1.5">
+                  <div>
+                    Peserta Didik: <strong className="text-slate-900">{targetSes.studentName}</strong> ({targetSes.studentNomorPeserta})
+                  </div>
+                  <div>
+                    Paket Ujian: <strong className="text-slate-900">{targetEx?.subject || targetSes.examId}</strong> ({targetEx?.code})
+                  </div>
+                </div>
+
+                <div className="pt-3 flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 border-t border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => setForceSubmitSessionId(null)}
+                    className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-300 bg-white font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      adminForceSubmitSession(forceSubmitSessionId);
+                      setForceSubmitSessionId(null);
+                    }}
+                    className="w-full sm:w-auto px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer shadow-xs transition-colors"
+                  >
+                    Ya, Paksa Submit & Rekam Nilai
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

@@ -85,6 +85,7 @@ export const UserManagementTab: React.FC = () => {
     updateUserAccount,
     deleteUserAccount,
     bulkDeleteUsers,
+    clearOrphanedStudentUsers,
     showToast,
   } = useCBT();
 
@@ -554,6 +555,19 @@ export const UserManagementTab: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              if (window.confirm('Bersihkan data yatim/siswa yang tersimpan di tabel manajemen user dan pindahkan ke tabel students?')) {
+                await clearOrphanedStudentUsers();
+              }
+            }}
+            className="inline-flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs px-3.5 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+            title="Bersihkan data siswa yatim yang tersimpan di tabel users"
+          >
+            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+            <span>Bersihkan Data Yatim</span>
+          </button>
           <button
             type="button"
             onClick={exportUsersCSV}

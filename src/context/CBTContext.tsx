@@ -170,6 +170,7 @@ interface CBTContextType {
   tickSessionTimer: (sessionId: string, remainingSeconds: number) => void;
   recordTabSwitch: (sessionId: string) => void;
   submitExamSession: (sessionId: string, timedOut?: boolean) => ExamSession | undefined;
+  adminForceSubmitSession: (sessionId: string) => ExamSession | undefined;
 
   // Admin Session, Grades & User Management
   resetStudentSession: (sessionId: string) => void;
@@ -194,6 +195,7 @@ interface CBTContextType {
   updateUserAccount: (id: string, updates: Partial<UserAccount>) => void;
   deleteUserAccount: (id: string) => void;
   bulkDeleteUsers: (ids: string[]) => { deletedCount: number; skippedActiveUser: boolean };
+  clearOrphanedStudentUsers: () => Promise<void>;
   resetAllDemoData: () => void;
 }
 
@@ -2367,7 +2369,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const submitExamSession = (sessionId: string, timedOut = false) => {
-    const target = sessions.find((s) => s.id === sessionId);
+    const target = sessionsRef.current.find((s) => s.id === sessionId) || sessions.find((s) => s.id === sessionId);
     if (!target) return undefined;
     const examQuestions = getQuestionsByExam(target.examId);
     const metrics = calculateSessionMetrics(examQuestions, target.answers);
@@ -2435,6 +2437,66 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? 'Jawaban Anda telah dikumpulkan dan nilai langsung diintegrasikan ke tabel students & v_rekap_nilai.'
         : 'Terima kasih, nilai ujian Anda berhasil disimpan di perangkat & langsung dikirim ke tabel v_rekap_nilai.',
       timedOut ? 'warning' : 'success'
+    );
+    return finishedSession;
+  };
+
+  const adminForceSubmitSession = (sessionId: string) => {
+    const target = sessionsRef.current.find((s) => s.id === sessionId) || sessions.find((s) => s.id === sessionId);
+    if (!target) return undefined;
+    const examQuestions = getQuestionsByExam(target.examId);
+    const metrics = calculateSessionMetrics(examQuestions, target.answers);
+    const { session: finishedSession, matchedStudent } = integrateSessionWithStudents(
+      {
+        ...target,
+        status: 'completed',
+        submittedAt: new Date().toISOString(),
+        doubtFlags: {},
+        ...metrics,
+      },
+      users
+    );
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? finishedSession : s))
+    );
+    saveLocalDeviceSessionsBackup([finishedSession]);
+
+    const exObj = exams.find((e) => e.id === target.examId);
+    addProctorAlert({
+      type: 'student_completed',
+      title: '⚡ Paksa Submit oleh Admin',
+      message: `Admin memaksa mengumpulkan ujian siswa ${finishedSession.studentName} (${finishedSession.studentKelas}) untuk [${exObj?.code || finishedSession.examId}]. Skor: ${finishedSession.score}`,
+      studentName: finishedSession.studentName,
+      studentKelas: finishedSession.studentKelas,
+      studentNomorPeserta: finishedSession.studentNomorPeserta,
+      examCode: exObj?.code || finishedSession.examId,
+      sessionId: finishedSession.id,
+      score: finishedSession.score,
+    });
+
+    void supabaseService
+      .upsertSession(finishedSession, matchedStudent || currentUser || undefined)
+      .then((res) => {
+        if (res.ok) {
+          setUnsyncedDeviceSessionIds((prev) =>
+            prev.filter((id) => id !== finishedSession.id)
+          );
+          if (res.session.studentId !== finishedSession.studentId) {
+            setSessions((prev) =>
+              prev.map((s) => (s.id === finishedSession.id ? res.session : s))
+            );
+          }
+        } else {
+          setUnsyncedDeviceSessionIds((prev) =>
+            Array.from(new Set([...prev, finishedSession.id]))
+          );
+        }
+      });
+
+    showToast(
+      '⚡ Paksa Submit Berhasil oleh Admin',
+      `Nilai siswa ${finishedSession.studentName} (${finishedSession.score}) langsung masuk ke tabel leger & database Supabase (v_rekap_nilai).`,
+      'success'
     );
     return finishedSession;
   };
@@ -2853,6 +2915,18 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { deletedCount: deletableIds.length, skippedActiveUser };
   };
 
+  const clearOrphanedStudentUsers = async () => {
+    setIsSyncingSupabase(true);
+    const res = await supabaseService.clearOrphanedStudentUsers();
+    setIsSyncingSupabase(false);
+    if (res.ok) {
+      await refreshFromSupabase();
+      showToast('Pembersihan Berhasil', res.message, 'success');
+    } else {
+      showToast('Gagal Membersihkan', res.message, 'error');
+    }
+  };
+
   const resetAllDemoData = () => {
     setClasses(INITIAL_CLASSES);
     setUsers(INITIAL_USERS);
@@ -2937,6 +3011,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tickSessionTimer,
         recordTabSwitch,
         submitExamSession,
+        adminForceSubmitSession,
         resetStudentSession,
         updateSessionScore,
         addManualGradeSession,
@@ -2945,6 +3020,7 @@ export const CBTProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateUserAccount,
         deleteUserAccount,
         bulkDeleteUsers,
+        clearOrphanedStudentUsers,
         resetAllDemoData,
       }}
     >

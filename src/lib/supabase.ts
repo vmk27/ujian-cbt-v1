@@ -964,13 +964,19 @@ export const supabaseService = {
 
       const allStudents = [...studentList, ...legacyStudentList];
       if (legacyStudentList.length > 0) {
-        // Otomatis migrasikan akun siswa lama ke tabel public.students
-        void resilientUpsert(
+        // Otomatis migrasikan akun siswa lama ke tabel public.students dan hapus dari public.users
+        await resilientUpsert(
           supabase,
           'students',
           legacyStudentList.map(mapStudentToRow)
         );
+        const legacyIds = legacyStudentList.map((l) => l.id);
+        if (legacyIds.length > 0) {
+          await supabase.from('users').delete().in('id', legacyIds);
+        }
       }
+      // Pastikan tidak ada satupun role siswa yang tertinggal di tabel public.users
+      await supabase.from('users').delete().eq('role', 'siswa');
 
       // Gabungkan akun untuk indeks sistem di aplikasi
       const mergedUsers = [...staffList, ...allStudents];
@@ -1093,6 +1099,14 @@ export const supabaseService = {
           console.warn('Peringatan tabel users:', usrRes.error);
         }
       }
+      // Bersihkan data siswa yang terlanjur masuk ke tabel users
+      await supabase.from('users').delete().eq('role', 'siswa');
+      if (studentOnly.length > 0) {
+        const studentIds = studentOnly.map((s) => s.id);
+        if (studentIds.length > 0) {
+          await supabase.from('users').delete().in('id', studentIds);
+        }
+      }
 
       // 4. Upsert exams (Paket & Jadwal Ujian)
       if (payload.exams.length > 0) {
@@ -1159,8 +1173,10 @@ export const supabaseService = {
   async upsertUser(user: UserAccount) {
     if (!supabase) return;
     if (user.role === 'siswa') {
+      await supabase.from('users').delete().eq('id', user.id);
       await resilientUpsert(supabase, 'students', [mapStudentToRow(user)]);
     } else {
+      await supabase.from('users').delete().eq('id', user.id); // pastikan tidak ada duplikasi ID jika role berubah
       await resilientUpsert(supabase, 'users', [mapUserToRow(user)]);
     }
   },
@@ -1218,18 +1234,87 @@ export const supabaseService = {
 
   async deleteUser(id: string) {
     if (!supabase) return;
-    await Promise.all([
-      supabase.from('users').delete().eq('id', id),
-      supabase.from('students').delete().eq('id', id),
-    ]);
+    try {
+      await supabase.from('exam_sessions').delete().eq('student_id', id);
+      await Promise.all([
+        supabase.from('users').delete().eq('id', id),
+        supabase.from('students').delete().eq('id', id),
+      ]);
+    } catch (err) {
+      console.warn('deleteUser error:', err);
+    }
   },
 
   async bulkDeleteUsers(ids: string[]) {
     if (!supabase || ids.length === 0) return;
-    await Promise.all([
-      supabase.from('users').delete().in('id', ids),
-      supabase.from('students').delete().in('id', ids),
-    ]);
+    try {
+      await supabase.from('exam_sessions').delete().in('student_id', ids);
+      await Promise.all([
+        supabase.from('users').delete().in('id', ids),
+        supabase.from('students').delete().in('id', ids),
+      ]);
+    } catch (err) {
+      console.warn('bulkDeleteUsers error:', err);
+    }
+  },
+
+  async clearOrphanedStudentUsers(): Promise<{ ok: boolean; purgedCount: number; message: string }> {
+    if (!supabase) {
+      return { ok: false, purgedCount: 0, message: 'Supabase belum dikonfigurasi.' };
+    }
+    try {
+      const { data: orphaned, error: fetchErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'siswa');
+
+      if (fetchErr) {
+        return { ok: false, purgedCount: 0, message: fetchErr.message };
+      }
+
+      if (!orphaned || orphaned.length === 0) {
+        const { data: allUsers } = await supabase.from('users').select('*');
+        const invalidStaff = (allUsers || []).filter(
+          (u: Record<string, unknown>) => !['admin', 'guru', 'proktor'].includes(String(u.role ?? ''))
+        );
+        if (!invalidStaff || invalidStaff.length === 0) {
+          return { ok: true, purgedCount: 0, message: 'Tabel users bersih dari data siswa atau role invalid.' };
+        }
+        let purged = 0;
+        for (const st of invalidStaff) {
+          const userObj = mapRowToUser(st);
+          await resilientUpsert(supabase, 'students', [mapStudentToRow(userObj)]);
+          await supabase.from('users').delete().eq('id', userObj.id);
+          purged++;
+        }
+        return {
+          ok: true,
+          purgedCount: purged,
+          message: `Berhasil membersihkan dan memindahkan ${purged} data yatim dari tabel users ke students.`,
+        };
+      }
+
+      let count = 0;
+      for (const st of orphaned) {
+        const userObj = mapRowToUser(st);
+        await resilientUpsert(supabase, 'students', [mapStudentToRow(userObj)]);
+        await supabase.from('users').delete().eq('id', userObj.id);
+        count++;
+      }
+      await supabase.from('users').delete().eq('role', 'siswa');
+
+      return {
+        ok: true,
+        purgedCount: count,
+        message: `Berhasil membersihkan ${count} data siswa yatim yang tersimpan di tabel users dan memindahkannya ke tabel students.`,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        purgedCount: 0,
+        message: err instanceof Error ? err.message : 'Gagal membersihkan data yatim.',
+      };
+    }
   },
 
   async upsertExam(exam: ExamPackage) {
@@ -2101,14 +2186,14 @@ CREATE TRIGGER trg_classes_updated_at
 BEFORE UPDATE ON public.classes
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- 2A. TABEL MANAJEMEN USER: ADMIN, GURU, PROKTOR (public.users - DENGAN KOLOM PASSWORD)
+-- 2A. TABEL MANAJEMEN USER: ADMIN, GURU, PROKTOR (public.users - HANYA UNTUK STAFF APARATUR, ROLE SISWA DIHARAMKAN)
 CREATE TABLE IF NOT EXISTS public.users (
   id TEXT PRIMARY KEY,
   auth_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
   username TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL DEFAULT 'CBT-2026*',
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'guru', 'proktor', 'siswa')) DEFAULT 'proktor',
+  role TEXT NOT NULL CHECK (role IN ('admin', 'guru', 'proktor')) DEFAULT 'proktor',
   kelas TEXT NOT NULL,
   nomor_peserta TEXT NOT NULL UNIQUE,
   jenis_kelamin TEXT NOT NULL CHECK (jenis_kelamin IN ('L', 'P')),
@@ -2120,7 +2205,23 @@ CREATE TABLE IF NOT EXISTS public.users (
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT NOT NULL DEFAULT 'CBT-2026*';
 ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
-ALTER TABLE public.users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'guru', 'proktor', 'siswa'));
+ALTER TABLE public.users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'guru', 'proktor'));
+
+-- Migrasi data siswa yang terlanjur masuk ke public.users agar dipindahkan ke public.students dan dihapus dari public.users
+INSERT INTO public.students (id, auth_user_id, username, password, name, role, kelas, nomor_peserta, jenis_kelamin, sekolah, created_at, updated_at)
+SELECT id, auth_user_id, username, COALESCE(password, 'CBT-2026'), name, 'siswa', kelas, nomor_peserta, COALESCE(jenis_kelamin, 'L'), COALESCE(sekolah, 'SMA Negeri 1 Nusantara Jakarta'), COALESCE(created_at, NOW()), COALESCE(updated_at, NOW())
+FROM public.users
+WHERE role = 'siswa'
+ON CONFLICT (id) DO UPDATE SET
+  username = EXCLUDED.username,
+  password = EXCLUDED.password,
+  name = EXCLUDED.name,
+  kelas = EXCLUDED.kelas,
+  nomor_peserta = EXCLUDED.nomor_peserta,
+  jenis_kelamin = EXCLUDED.jenis_kelamin,
+  sekolah = EXCLUDED.sekolah;
+
+DELETE FROM public.users WHERE role = 'siswa';
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON public.users (role);
 CREATE INDEX IF NOT EXISTS idx_users_kelas ON public.users (kelas);
